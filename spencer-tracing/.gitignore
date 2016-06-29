@@ -1,0 +1,48 @@
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+*.jar
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# IntelliJ
+.idea/*
+*.iml
+
+# temp output:
+*.bytecode
+*.out
+*.err
+*.stdout
+*.stderr
+*.png
+*.svg
+*.gz
+tracefiles/*
+
+# Maven build
+java/target

@@ -1,0 +1,119 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.github.kaeluka</groupId>
+        <artifactId>spencer-tracing-native</artifactId>
+        <version>0.1.3-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>spencer-tracing-jni</artifactId>
+    <name>JNI Module</name>
+
+    <packaging>so</packaging>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.github.kaeluka</groupId>
+            <artifactId>spencer-tracing-java</artifactId>
+            <version>0.1.3-SNAPSHOT</version>
+            <scope>compile</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>native-maven-plugin</artifactId>
+                <version>1.0-alpha-8</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <!--  trigger javah -->
+                    <javahOS>linux</javahOS>
+
+                    <compilerProvider>generic-classic</compilerProvider>
+                    <compilerExecutable>clang++</compilerExecutable>
+                    <linkerExecutable>clang++</linkerExecutable>
+                    <sources>
+                        <source>
+                            <directory>../src/agent</directory>
+                            <fileNames>
+                                <fileName>NativeInterface.cpp</fileName>
+                            </fileNames>
+                        </source>
+                    </sources>
+
+                    <compilerStartOptions>
+                        -I /System/Library/Frameworks/JavaVM.framework/Headers -std=c++14
+                    </compilerStartOptions>
+
+                    <linkerStartOptions>
+                        -lcapnp -lkj -lc -stdlib=libc++ -shared
+                    </linkerStartOptions>
+
+                </configuration>
+
+                <executions>
+                    <execution>
+                        <id>javah</id>
+                        <phase>generate-sources</phase>
+                        <configuration>
+                            <javahOS>win32</javahOS>
+                            <javahProvider>default</javahProvider>
+                            <javahOutputDirectory>${project.build.directory}/custom-javah</javahOutputDirectory>
+                            <workingDirectory>${basedir}</workingDirectory>
+                            <javahOutputFileName>NativeInterface.h</javahOutputFileName>
+                            <javahClassNames>
+                                <javahClassName>NativeInterface</javahClassName>
+                            </javahClassNames>
+                        </configuration>
+                        <goals>
+                            <goal>javah</goal>
+                        </goals>
+                    </execution>
+                </executions>
+
+            </plugin>
+
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>1.5.0</version>
+                <executions>
+                    <execution>
+                        <id>build-jni-module</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>make</executable>
+                            <arguments>
+                                <argument>events.h</argument>
+                            </arguments>
+                            <workingDirectory>../src/agent</workingDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>clean-jni-module</id>
+                        <phase>clean</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>make</executable>
+                            <arguments>
+                                <argument>clean</argument>
+                            </arguments>
+                            <workingDirectory>../src/agent</workingDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+
+            </plugin>
+        </plugins>
+    </build>
+</project>
