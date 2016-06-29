@@ -1,5 +1,9 @@
 @0xe34bb656aa74c23e;
 
+using Java = import "/java.capnp";
+$Java.package("com.github.kaeluka.spencer");
+$Java.outerClassname("Events");
+
 struct TagObj {
   id    @0 :Int64;
   class @1 :Text;

@@ -19,10 +19,32 @@
             <version>0.1.3-SNAPSHOT</version>
             <scope>compile</scope>
         </dependency>
+        <dependency>
+            <groupId>org.capnproto</groupId>
+            <artifactId>runtime</artifactId>
+            <version>0.1.1</version>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.expretio.maven.plugins</groupId>
+                <artifactId>capnp-maven-plugin</artifactId>
+                <version>1.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <schemas>
+                                <schema>com/github/kaeluka/spencer/events.capnp</schema>
+                            </schemas>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
 
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

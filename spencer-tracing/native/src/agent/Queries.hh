@@ -564,7 +564,7 @@ public:
 };
 
 /**
- * Calls the appropriate handles of the protocol. If a protocol's
+ * CallsIntegration the appropriate handles of the protocol. If a protocol's
  * handle returns false, will fail forever.
  */
 template <class Protocol> struct _implement {

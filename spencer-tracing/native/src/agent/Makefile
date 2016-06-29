@@ -114,10 +114,10 @@ Debug.o: Debug.cpp Debug.h
 %.class: %.java
 	javac  -Xlint:deprecation $(JLIB) $<
 
-events.h: events.capnp
-	capnp compile events.capnp -oc++
-	mv events.capnp.h events.h
-	mv events.capnp.c++ events.cpp
+events.h: ../../linux/src/main/capnp/com/github/kaeluka/spencer/events.capnp
+	capnp -I../../linux/src/main/capnp/ compile ../../linux/src/main/capnp/com/github/kaeluka/spencer/events.capnp -oc++
+	mv ../../linux/src/main/capnp/com/github/kaeluka/spencer/events.capnp.h events.h
+	mv ../../linux/src/main/capnp/com/github/kaeluka/spencer/events.capnp.c++ events.cpp
 	sed -i.bak "s/events.capnp.h/events.h/" events.cpp
 
 $(DACAPO):
