@@ -1044,25 +1044,36 @@ jvmtiIterationControl JNICALL handleUntaggedObject(jlong class_tag,
                                                 jlong size,
                                                 jlong *tag_ptr,
                                                 void *user_data) {
+
+  std::vector<long> *freshlyTagged = (std::vector<long>*)user_data;
   *tag_ptr = nextObjID.fetch_add(1);
   std::cout << "setting tag "<< *tag_ptr<<"\n";
-
-  capnp::MallocMessageBuilder outermessage;
-  AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
-  capnp::MallocMessageBuilder innermessage;
-  MethodEnterEvt::Builder msgbuilder =
-    innermessage.initRoot<MethodEnterEvt>();
-  msgbuilder.setName("<init>");
-  msgbuilder.setSignature("(<unknown>)V");
-  msgbuilder.setCalleeclass("<unknown>");
-  msgbuilder.setCalleetag(*tag_ptr);
-  msgbuilder.setThreadName("JVM_Thread<?>");
-
-  anybuilder.setMethodenter(msgbuilder.asReader());
-
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  freshlyTagged->push_back(*tag_ptr);
 
   return JVMTI_ITERATION_CONTINUE;
+}
+
+std::string getTypeForTag(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jlong tag) {
+  jint count = -1;
+  jobject *obj_res = NULL;
+  jvmti_env->GetObjectsWithTags(1,  // Tag count
+                                &tag,
+                                &count,
+                                &obj_res,
+                                NULL);
+
+  ASSERT_EQ(count, 1);
+  std::string ret = "<unknownType>";
+
+  jclass klassKlass = jni_env->FindClass("java/lang/Class");
+  jmethodID getName = jni_env->GetMethodID(klassKlass, "getName", "()Ljava/lang/String;");
+  ASSERT(getName != NULL);
+
+  jclass klass = jni_env->GetObjectClass(*obj_res);
+  jstring name = (jstring)jni_env->CallObjectMethod(klass, getName);
+  ASSERT(name != NULL);
+  jvmti_env->Deallocate((unsigned char*)obj_res);
+  return toStdString(jni_env, name);
 }
 
 /*
@@ -1071,18 +1082,38 @@ jvmtiIterationControl JNICALL handleUntaggedObject(jlong class_tag,
 
   * Sets init to 1 to indicate the VM init
 */
-void JNICALL VMInit(jvmtiEnv *jvmti_env, JNIEnv *jni, jthread threadName) {
+void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
   #ifdef ENABLED
   DBG("VMInit");
 
   g_init = true;
 
+  std::vector<long> freshlyTagged;
 
   jvmtiError err =
-    jvmti_env->IterateOverHeap(JVMTI_HEAP_OBJECT_UNTAGGED,
-                               handleUntaggedObject,
-                               NULL);
-  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+    env->IterateOverHeap(JVMTI_HEAP_OBJECT_UNTAGGED,
+                         handleUntaggedObject,
+                         &freshlyTagged);
+
+  for (auto it = freshlyTagged.begin(); it != freshlyTagged.end(); ++it) {
+    std::cout << "emitting for "<<*it<<"\n";
+    capnp::MallocMessageBuilder outermessage;
+    AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
+    capnp::MallocMessageBuilder innermessage;
+    MethodEnterEvt::Builder msgbuilder =
+      innermessage.initRoot<MethodEnterEvt>();
+    msgbuilder.setName("<init>");
+    msgbuilder.setSignature("(<unknown>)V");
+    msgbuilder.setCalleeclass(getTypeForTag(env, jni, *it));
+    msgbuilder.setCalleetag(*it);
+    msgbuilder.setThreadName("JVM_Thread<?>");
+
+    anybuilder.setMethodenter(msgbuilder.asReader());
+
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
+
+  ASSERT_NO_JVMTI_ERR(env, err);
 
   #endif // ENABLED
 }
