@@ -1040,6 +1040,31 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
 #endif // ifdef ENABLED
 }
 
+jvmtiIterationControl JNICALL handleUntaggedObject(jlong class_tag,
+                                                jlong size,
+                                                jlong *tag_ptr,
+                                                void *user_data) {
+  *tag_ptr = nextObjID.fetch_add(1);
+  std::cout << "setting tag "<< *tag_ptr<<"\n";
+
+  capnp::MallocMessageBuilder outermessage;
+  AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
+  capnp::MallocMessageBuilder innermessage;
+  MethodEnterEvt::Builder msgbuilder =
+    innermessage.initRoot<MethodEnterEvt>();
+  msgbuilder.setName("<init>");
+  msgbuilder.setSignature("(<unknown>)V");
+  msgbuilder.setCalleeclass("<unknown>");
+  msgbuilder.setCalleetag(*tag_ptr);
+  msgbuilder.setThreadName("JVM_Thread<?>");
+
+  anybuilder.setMethodenter(msgbuilder.asReader());
+
+  capnp::writeMessageToFd(capnproto_fd, outermessage);
+
+  return JVMTI_ITERATION_CONTINUE;
+}
+
 /*
   The VM initialization event signals the completion of
   VM initialization.
@@ -1051,6 +1076,14 @@ void JNICALL VMInit(jvmtiEnv *jvmti_env, JNIEnv *jni, jthread threadName) {
   DBG("VMInit");
 
   g_init = true;
+
+
+  jvmtiError err =
+    jvmti_env->IterateOverHeap(JVMTI_HEAP_OBJECT_UNTAGGED,
+                               handleUntaggedObject,
+                               NULL);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+
   #endif // ENABLED
 }
 
@@ -1112,6 +1145,7 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   }
   // cerr << "agent started\n";
   // Get jvmti env
+  std::cout << "opening "<<tracefilename.c_str()<<"\n";
   capnproto_fd = open(tracefilename.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
                       S_IRUSR | S_IWUSR);
   if (capnproto_fd == -1) {
