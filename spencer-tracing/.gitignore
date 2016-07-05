@@ -42,7 +42,7 @@
 *.png
 *.svg
 *.gz
-tracefiles/*
+com.github.kaeluka.spencer.tracefiles/*
 
 # Maven build
 java/target

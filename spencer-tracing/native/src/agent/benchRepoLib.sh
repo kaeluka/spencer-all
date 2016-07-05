@@ -13,7 +13,7 @@ function getFamilies() {
 
 function getTracedir() {
   DRIVE=$($DIR/getBenchmarkDrive.sh)
-  echo $DRIVE/tracefiles
+  echo $DRIVE/com.github.kaeluka.spencer.tracefiles
 }
 
 function getBenchdir() {

@@ -99,8 +99,57 @@
                     </arguments>
                 </configuration>
             </plugin-->
+
+            <plugin>
+                <groupId>org.expretio.maven.plugins</groupId>
+                <artifactId>capnp-maven-plugin</artifactId>
+                <version>1.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <schemaDirectory>
+                                ../native/linux/src/main/capnp
+                            </schemaDirectory>
+                            <schemas>
+                                <schema>com/github/kaeluka/spencer/events.capnp</schema>
+                            </schemas>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>1.10</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.build.directory}/generated-sources/capnp/</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
+
     </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.capnproto</groupId>
+            <artifactId>runtime</artifactId>
+            <version>0.1.1</version>
+        </dependency>
+    </dependencies>
 
 
 </project>

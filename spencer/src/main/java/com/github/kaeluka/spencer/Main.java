@@ -147,27 +147,26 @@ public class Main {
             argStrings.add("-Xbootclasspath/p:" + System.getProperty("user.home") + ("/.spencer/instrumented_java_rt/output".replaceAll("/", sep)));
         }
 
-        //printClassPath();
-        //FIXME hard coded version numbers
-//        String cpPrepend =
-//                // the native interface class:
-//                ":"+).replaceAll("/", sep)+
-
         System.out.println("cp is: "+System.getProperty("java.class.path"));
         java.io.InputStream is = Main.class.getResourceAsStream("/dependencies.properties");
+
         java.util.Properties p = new Properties();
         p.load(is);
         final String nativeInterfaceLocation = p.getProperty("com.github.kaeluka:spencer-tracing-java:jar");
         System.out.println("com.github.kaeluka:spencer-tracing-java:jar = "+ nativeInterfaceLocation);
 
-
         argStrings.add("-Xbootclasspath/p:" + nativeInterfaceLocation);
 
-        final String tracingJni = p.getProperty("com.github.kaeluka:spencer-tracing-jni:pom").replace("pom.xml", "/target/spencer-tracing-jni.so");
-        if (!new File(tracingJni).exists()) {
-            throw new IllegalStateException("Could not find agent binary: "+tracingJni);
+        //FIXME hard-coded OS
+        final String tracingNativePom = p.getProperty("com.github.kaeluka:spencer-tracing-osx:pom");
+        if (tracingNativePom == null) {
+            throw new IllegalStateException("could not find pom.xml for spencer-tracing-osx project");
         }
-        System.out.println("Could find agent binary: "+tracingJni);
+        final String tracingJni = tracingNativePom.replace("pom.xml", "target/spencer-tracing-osx.so");
+//        final File file = new File(tracingJni);
+//        if (!file.exists()) {
+//            throw new IllegalStateException("Could not find agent binary: "+file.getAbsolutePath() + " wtf");
+//        }
         argStrings.add("-agentpath:" + tracingJni + "=tracefile=/tmp/tracefile");
 
         for (String arg : jvmArgs) {

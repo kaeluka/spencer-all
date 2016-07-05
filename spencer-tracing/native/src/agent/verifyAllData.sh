@@ -15,6 +15,6 @@ done
 if [ ! -z "$BROKEN" ]; then
   exit 1
 else
-  echo "all tracefiles ok"
+  echo "all com.github.kaeluka.spencer.tracefiles ok"
   exit 0
 fi

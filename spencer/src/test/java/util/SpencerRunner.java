@@ -15,7 +15,7 @@ public class SpencerRunner {
         ProcessBuilder p = new ProcessBuilder(
                 args);
         p.directory(new File("target/test-classes"));
-//        p.redirectOutput();
+        p.redirectError();
         try {
             final Process process = p.start();
 //            process.waitFor();
@@ -27,6 +27,7 @@ public class SpencerRunner {
             final StringBuilder spencerOut = new StringBuilder();
             while ((line = bufferedReader.readLine()) != null) {
                 spencerOut.append("\n"+line);
+                System.out.println(line);
             }
             return spencerOut.toString();
         } catch (IOException e) {

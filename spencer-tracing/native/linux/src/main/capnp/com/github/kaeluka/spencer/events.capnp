@@ -6,7 +6,7 @@ $Java.outerClassname("Events");
 
 struct TagObj {
   id    @0 :Int64;
-  class @1 :Text;
+  klass @1 :Text;
 }
 
 struct MethodEnterEvt {
@@ -37,7 +37,7 @@ struct FieldStoreEvt {
 
 struct ObjAllocEvt {
   tag           @0 :Int64;
-  class         @1 :Text;
+  klass         @1 :Text;
   callermethod  @2 :Text;
   callerclass   @3 :Text;
   caller        @4 :Int64;

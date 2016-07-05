@@ -5,6 +5,6 @@
 FAMILY=$1
 NEWEST_VERSION=$(./getNewestVersion.sh)
 
-cat tracefiles/*$FAMILY*/info.txt | grep $NEWEST_VERSION > /dev/null || exit 0
+cat com.github.kaeluka.spencer.tracefiles/*$FAMILY*/info.txt | grep $NEWEST_VERSION > /dev/null || exit 0
 
 false
