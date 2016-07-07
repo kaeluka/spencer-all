@@ -26,13 +26,13 @@ std::set<std::string> instrumentedClasses;
 std::set<std::string> uninstrumentedClasses;
 
 void ensureThreadKnown(const std::string &threadName) {
-  if (stacks.find(threadName) == stacks.end()) {
-    DBG("making thread #" << threadName << " known");
-    // accessing, as a side effect, creates the object:
-    stacks[threadName];
-    freshObjectIDs[threadName];
-  }
-  ASSERT(freshObjectIDs.find(threadName) != freshObjectIDs.end());
+  //  if (stacks.find(threadName) == stacks.end()) {
+  //    DBG("making thread #" << threadName << " known");
+  //    // accessing, as a side effect, creates the object:
+  //    stacks[threadName];
+  //    freshObjectIDs[threadName];
+  //  }
+  //  ASSERT(freshObjectIDs.find(threadName) != freshObjectIDs.end());
 }
 
 callstack &getThreadStack(std::string threadName) {
@@ -123,7 +123,7 @@ long doTag(jvmtiEnv *jvmti, jobject jobj);
 long getOrDoTag(jint objkind, jobject jobj, std::string klass, const std::string &thread,
                 jvmtiEnv *g_jvmti, jrawMonitorID g_lock);
 
-std::string getThreadName(jvmtiEnv* g_jvmti, jrawMonitorID g_lock) {
+/*  std::string getThreadName(jvmtiEnv* g_jvmti, jrawMonitorID g_lock) {
   jthread thread;
   jvmtiError err = g_jvmti->GetCurrentThread(&thread);
 
@@ -162,6 +162,7 @@ std::string getThreadName(jvmtiEnv* g_jvmti, jrawMonitorID g_lock) {
   DBG("done getting thread name");
   return threadName;
 }
+*/
 
 void pushStackFrame(JNIEnv *env, const std::string &thread, jint callee_kind,
                     jobject callee, jstring mname, jstring cname,
@@ -199,36 +200,35 @@ void pushStackFrame(JNIEnv *env, const std::string &thread, jint callee_kind,
   //temporary  printCurrentStack(threadName);
 }
 
-long getTag(jint objkind, jobject jobj, std::string klass, const std::string &threadName,
-            jvmtiEnv *g_jvmti);
+//long getTag(jint objkind, jobject jobj, std::string klass);
 
-bool tagFreshlyInitialisedObject(jvmtiEnv *g_jvmti, jobject callee,
-                                 std::string threadName) {
-  DBG("tagFreshlyInitialisedObject(..., threadName = " << threadName << ")");
-  ASSERT(freshObjectIDs.find(threadName) != freshObjectIDs.end() &&
-         "need to know the thread");
-  if (getTag(NativeInterface_SPECIAL_VAL_NORMAL, callee, "class/unknown", threadName, g_jvmti) != 0) {
-    return false;
-  }
-  ASSERT(g_jvmti);
-  ASSERT(callee);
-  //doTag(g_jvmti, callee);
-
-  jlong tag;
-  //  if (freshObjectIDs[threadName].empty()) {
-  DBG("thread " << threadName << ": don't have an object ID");
-  tag = nextObjID.fetch_add(1);
-  freshObjectIDs[threadName].push(tag);
-  //} else {
-  //  tag = freshObjectIDs[threadName].top();
-  //  freshObjectIDs[threadName].pop();
-  //}
-  DBG("tagging freshly initialised object with id " << tag);
-  jvmtiError err = g_jvmti->SetTag(callee, tag);
-  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
-  return true;
-  // DBG("set tag " << tag << " on " << jobj);
-}
+//bool ___tagFreshlyInitialisedObject(jvmtiEnv *g_jvmti, jobject callee,
+//                                 std::string threadName) {
+//  DBG("tagFreshlyInitialisedObject(..., threadName = " << threadName << ")");
+//  ASSERT(freshObjectIDs.find(threadName) != freshObjectIDs.end() &&
+//         "need to know the thread");
+//  if (getTag(NativeInterface_SPECIAL_VAL_NORMAL, callee, "class/unknown", threadName, g_jvmti) != 0) {
+//    return false;
+//  }
+//  ASSERT(g_jvmti);
+//  ASSERT(callee);
+//  //doTag(g_jvmti, callee);
+//
+//  jlong tag;
+//  //  if (freshObjectIDs[threadName].empty()) {
+//  DBG("thread " << threadName << ": don't have an object ID");
+//  tag = nextObjID.fetch_add(1);
+//  freshObjectIDs[threadName].push(tag);
+//  //} else {
+//  //  tag = freshObjectIDs[threadName].top();
+//  //  freshObjectIDs[threadName].pop();
+//  //}
+//  DBG("tagging freshly initialised object with id " << tag);
+//  jvmtiError err = g_jvmti->SetTag(callee, tag);
+//  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+//  return true;
+//  // DBG("set tag " << tag << " on " << jobj);
+//}
 
 //temporaryvoid popStackFrame(const std::string &threadName) {
   //temporary  //if (getThreadStack(threadName).hasFrames() == 0) {
@@ -269,7 +269,7 @@ bool tagFreshlyInitialisedObject(jvmtiEnv *g_jvmti, jobject callee,
 //temporarylong getRunningObject(const std::string &threadName) { return getRunningFrame(threadName).getThisId(); }
 
 //temporaryconst std::string getRunningClass(const std::string &threadName) { return getRunningFrame(threadName).getClassName(); }
-const std::string getRunningClass(const std::string &threadName) { return "TODO:instrument running class"; }
+//const std::string getRunningClass(const std::string &threadName) { return "TODO:instrument running class"; }
 
 /**
   Tag an object with a fresh ID.
@@ -306,61 +306,61 @@ jlong getClassRepTag(const std::string &className) {
 }
 #endif
 
-long getTag(jint objkind, jobject jobj, std::string klass, const std::string &threadName,
-            jvmtiEnv *g_jvmti) {
-  jlong tag = 0;
-    switch (objkind) {
-  case NativeInterface_SPECIAL_VAL_NORMAL: {
-    if (jobj) {
-      jvmtiError err = g_jvmti->GetTag(jobj, &tag);
-      // DBG("getting preliminary tag " << tag << " from " << jobj);
-      DBG("getting tag (" << klass << " @ " << tag << ") from JVMTI");
-      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
-      }
-    }
-    break;
-   case NativeInterface_SPECIAL_VAL_THIS: {
-     if (getThreadStack(threadName).hasFrames() > 0) {
-       ASSERT(getThreadStack(threadName).hasFrames() > 0);
-       tag = getThreadStack(threadName).peekFrame().getThisId();
-       DBG("getting tag (" << klass << " @ " << tag << ") from top");
-     } else {
-       DBG("getting tag (" << klass << " @ " << NativeInterface_SPECIAL_VAL_JVM
-                           << ") from SPECIAL_VAL_JVM");
-       tag = NativeInterface_SPECIAL_VAL_JVM;
-     }
-     break;
-  }
-  case NativeInterface_SPECIAL_VAL_STATIC: {
-    tag = getClassRepTag(klass);
-    DBG("getting tag (" << klass << " @ " << tag << ") from classRep");
-    break;
-  }
-  case NativeInterface_SPECIAL_VAL_NOT_IMPLEMENTED: {
-    ERR("SPECIAL_VAL_NOT_IMPLEMENTED");
-    break;
-  }
-  default:
-    ERR("WAT? "<<objkind);
-  }
+//long ___getTag(jint objkind, jobject jobj, std::string klass, const std::string &threadName,
+//            jvmtiEnv *g_jvmti) {
+//  jlong tag = 0;
+//    switch (objkind) {
+//  case NativeInterface_SPECIAL_VAL_NORMAL: {
+//    if (jobj) {
+//      jvmtiError err = g_jvmti->GetTag(jobj, &tag);
+//      // DBG("getting preliminary tag " << tag << " from " << jobj);
+//      DBG("getting tag (" << klass << " @ " << tag << ") from JVMTI");
+//      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+//      }
+//    }
+//    break;
+//   case NativeInterface_SPECIAL_VAL_THIS: {
+//     if (getThreadStack(threadName).hasFrames() > 0) {
+//       ASSERT(getThreadStack(threadName).hasFrames() > 0);
+//       tag = getThreadStack(threadName).peekFrame().getThisId();
+//       DBG("getting tag (" << klass << " @ " << tag << ") from top");
+//     } else {
+//       DBG("getting tag (" << klass << " @ " << NativeInterface_SPECIAL_VAL_JVM
+//                           << ") from SPECIAL_VAL_JVM");
+//       tag = NativeInterface_SPECIAL_VAL_JVM;
+//     }
+//     break;
+//  }
+//  case NativeInterface_SPECIAL_VAL_STATIC: {
+//    tag = getClassRepTag(klass);
+//    DBG("getting tag (" << klass << " @ " << tag << ") from classRep");
+//    break;
+//  }
+//  case NativeInterface_SPECIAL_VAL_NOT_IMPLEMENTED: {
+//    ERR("SPECIAL_VAL_NOT_IMPLEMENTED");
+//    break;
+//  }
+//  default:
+//    ERR("WAT? "<<objkind);
+//  }
+//
+//  return tag;
+//}
 
-  return tag;
-}
-
-long getOrDoTag(jint objkind, jobject jobj, std::string klass, const std::string &thread,
-                jvmtiEnv *g_jvmti, jrawMonitorID g_lock) {
-  // LOCK;
-
-  jlong tag = getTag(objkind, jobj, klass, thread, g_jvmti);
-  if (tag == 0) {
-    tag = doTag(g_jvmti, jobj);
-    DBG("setting tag (" << klass << " @ " << tag << ") using doTag");
-    //ASSERT(getOrDoTag(objkind, jobj, klass, thread, g_jvmti, g_lock) ==
-    //       tag);
-    ASSERT(tag != 0);
-  }
-  return tag;
-}
+//long ___getOrDoTag(jint objkind, jobject jobj, std::string klass, const std::string &thread,
+//                jvmtiEnv *g_jvmti, jrawMonitorID g_lock) {
+//  // LOCK;
+//
+//  jlong tag = getTag(objkind, jobj, klass, thread, g_jvmti);
+//  if (tag == 0) {
+//    tag = doTag(g_jvmti, jobj);
+//    DBG("setting tag (" << klass << " @ " << tag << ") using doTag");
+//    //ASSERT(getOrDoTag(objkind, jobj, klass, thread, g_jvmti, g_lock) ==
+//    //       tag);
+//    ASSERT(tag != 0);
+//  }
+//  return tag;
+//}
 
 /*
   returns a c++ string with content copied from a java str

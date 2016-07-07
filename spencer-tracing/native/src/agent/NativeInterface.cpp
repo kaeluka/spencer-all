@@ -84,8 +84,20 @@ string kindToStr(jint v) {
 
 static jrawMonitorID g_lock;
 
+std::string getThreadName() {
+  jvmtiThreadInfo info;
+  jvmtiError err = g_jvmti->GetThreadInfo(NULL, &info);
+  if (err == JVMTI_ERROR_WRONG_PHASE) {
+    return "SOME_JVM_THREAD";
+  } else {
+    std::string ret(info.name);
+    g_jvmti->Deallocate((unsigned char*)info.name);
+    return ret;
+  }
+}
+
 void doFramePop(std::string mname) {
-  std::string threadName = getThreadName(g_jvmti, g_lock);//getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, thread,
+  std::string threadName = getThreadName();
   capnp::MallocMessageBuilder outermessage;
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
   capnp::MallocMessageBuilder innermessage;
@@ -96,8 +108,6 @@ void doFramePop(std::string mname) {
   ASSERT(std::string("") != msgbuilder.getName().cStr());
   anybuilder.setMethodexit(msgbuilder.asReader());
 
-  //temporary  popStackFrame(threadName);
-
   capnp::writeMessageToFd(capnproto_fd, outermessage);
 }
 
@@ -107,8 +117,6 @@ bool isInLivePhase() {
   ASSERT_NO_JVMTI_ERR(g_jvmti, err);
   return (phase == JVMTI_PHASE_LIVE);
 }
-
-#define SKIP_BEFORE_LIVE {if (!isInLivePhase()) {return;} }
 
 /*******************************************************************/
 /* Socket management                                               */
@@ -349,22 +357,151 @@ JNIEXPORT void JNICALL Java_NativeInterface_modifyArray
 JNIEXPORT void JNICALL
 Java_NativeInterface_methodExit(JNIEnv *env, jclass, jstring _mname, jstring _cname) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
   const auto mname = toStdString(env, _mname);
   const auto cname = toStdString(env, _cname);
-  //temporary  if (! isClassInstrumented(cname)) {
-  //temporary    DODBG("NOT POPPING FRAME DUE TO CLASS "<<cname<<" BEING UNINSTRUMENTED");
-  //temporary    return;
-  //temporary  }
   ASSERT(mname != "");
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
-  DBG("Java_NativeInterface_methodExit:  ...::"<<mname<<"), thd: "<<getThreadName(g_jvmti, g_lock));
+  DBG("Java_NativeInterface_methodExit:  ...::"<<mname<<"), thd: "<<getThreadName());
   ASSERT(mname != "ClassRep");
   doFramePop(mname);
   DBG("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
 #endif
+}
+
+/**
+   Get the currently running this (best effort, will return NULL at least for
+   native methods and before the live phase). Must not be called from static
+   method.
+*/
+jobject getThis() {
+  LOCK;
+  jobject ret;
+  jint count;
+  if (g_jvmti == NULL) {
+    return NULL;
+  }
+  jvmtiError err = g_jvmti->GetLocalObject(NULL, //use current thread
+                                           0,    //stack depth
+                                           0,    //variable 0 -- this
+                                           &ret);
+  if (err == JVMTI_ERROR_OPAQUE_FRAME || JVMTI_ERROR_WRONG_PHASE) {
+    return NULL;
+  } else {
+    ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+    return ret;
+  }
+}
+
+std::string getTypeForObj(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jobject obj) {
+  jclass klassKlass = jni_env->FindClass("java/lang/Class");
+  jmethodID getName = jni_env->GetMethodID(klassKlass, "getName", "()Ljava/lang/String;");
+  ASSERT(getName != NULL);
+
+  jclass klass = jni_env->GetObjectClass(obj);
+  jstring name = (jstring)jni_env->CallObjectMethod(klass, getName);
+  ASSERT(name != NULL);
+  return toStdString(jni_env, name);
+}
+
+std::string getTypeForThis(jvmtiEnv *jvmti_env, JNIEnv *jni_env) {
+  return getTypeForObj(jvmti_env, jni_env, getThis());
+}
+
+
+std::string getTypeForObjKind(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jobject obj, jint kind, jstring definitionKlass) {
+  switch (kind) {
+  case NativeInterface_SPECIAL_VAL_NORMAL: {
+    return getTypeForObj(jvmti_env, jni_env, obj);
+  }
+  case NativeInterface_SPECIAL_VAL_THIS: {
+    jobject _this = getThis();
+    if (_this == NULL) {
+      return toStdString(jni_env, definitionKlass);
+    } else {
+      return getTypeForObj(jvmti_env, jni_env, _this);
+    }
+  }
+  case NativeInterface_SPECIAL_VAL_STATIC: {
+    return toStdString(jni_env, definitionKlass);
+  }
+  default:
+    ERR("Can't handle kind "<<kind);
+  }
+}
+
+std::string getTypeForTag(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jlong tag) {
+  jint count = -1;
+  jobject *obj_res = NULL;
+  jvmti_env->GetObjectsWithTags(1,  // Tag count
+                                &tag,
+                                &count,
+                                &obj_res,
+                                NULL);
+  if (count == 0) {
+    return "<unknown>";
+  }
+
+  ASSERT_EQ(count, 1);
+
+  std::string ret = getTypeForObj(jvmti_env, jni_env, *obj_res);
+
+  jvmti_env->Deallocate((unsigned char*)obj_res);
+
+  return ret;
+}
+
+long getTag(jint objkind, jobject jobj, std::string klass) {
+  jlong tag = 0;
+    switch (objkind) {
+  case NativeInterface_SPECIAL_VAL_NORMAL: {
+    if (jobj) {
+      jvmtiError err = g_jvmti->GetTag(jobj, &tag);
+      DBG("getting tag (" << klass << " @ " << tag << ") from JVMTI");
+      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+      }
+    }
+    break;
+   case NativeInterface_SPECIAL_VAL_THIS: {
+     jobject obj = getThis();
+     if (obj == NULL) {
+       return NativeInterface_SPECIAL_VAL_JVM;
+     } else {
+       return getTag(NativeInterface_SPECIAL_VAL_NORMAL, obj, klass);
+     }
+  }
+  case NativeInterface_SPECIAL_VAL_STATIC: {
+    tag = getClassRepTag(klass);
+    DBG("getting tag (" << klass << " @ " << tag << ") from classRep");
+    break;
+  }
+  case NativeInterface_SPECIAL_VAL_NOT_IMPLEMENTED: {
+    ERR("SPECIAL_VAL_NOT_IMPLEMENTED");
+    break;
+  }
+  default:
+    ERR("Can not get tag for object with kind "<<objkind);
+  }
+
+  return tag;
+}
+
+std::vector<long> irregularlyTagged;
+
+long getOrDoTag(jint objkind, jobject jobj, std::string klass) {
+  jlong tag = getTag(objkind, jobj, klass);
+  if (tag == 0) {
+    tag = doTag(g_jvmti, jobj);
+    if (isInLivePhase()) {
+      WARN("irregularly tagged object #"<<tag<<" in live phase");
+    } else {
+      irregularlyTagged.push_back(tag);
+    }
+    DBG("setting tag (" << klass << " @ " << tag << ") using doTag");
+    ASSERT(tag != 0);
+  }
+  return tag;
 }
 
 JNIEXPORT void JNICALL
@@ -373,59 +510,33 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
                                  jstring calleeClass, jint calleeKind,
                                  jobject callee, jobjectArray args) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
-  std::string threadName = getThreadName(g_jvmti, g_lock);
-  std::string calleeClassStr = toStdString(env, calleeClass);
+  std::string threadName = getThreadName();
+  std::string calleeClassStr;
+  if (callee == NULL && calleeKind == NativeInterface_SPECIAL_VAL_NORMAL) {
+    //happens early in bootstrapping!
+    calleeClassStr = "<: "+toStdString(env, calleeClass);
+  } else {
+    calleeClassStr = getTypeForObjKind(g_jvmti, env, callee, calleeKind, calleeClass);
+  }
   DBG("Java_NativeInterface_methodEnter: "<<calleeClassStr
                                           <<"::" << toStdString(env, name)
                                           <<", thd:"<<threadName);
-  pushStackFrame(env, threadName, calleeKind, callee, name, calleeClass, g_jvmti,
-                 g_lock);
+  //  pushStackFrame(env, threadName, calleeKind, callee, name, calleeClass, g_jvmti,
+  //                 g_lock);
 
   long calleeTag;
   if (calleeKind == NativeInterface_SPECIAL_VAL_STATIC) {
     callee = NULL;
     calleeTag = getClassRepTag(calleeClassStr);
+    calleeClassStr = toStdString(env, calleeClass);
   } else {
-    calleeTag = getTag(calleeKind, callee, toStdString(env, calleeClass),
-                            threadName, g_jvmti);
+    calleeTag = getOrDoTag(calleeKind, callee, toStdString(env, calleeClass));
   }
   //handleValStatic(env, &calleeKind, &callee, calleeClass);
   DBG("callee tag = " << calleeTag);
   DBG("thread tag = " << threadName);
-  if (!flag_application_only) {
-    // force calling init on the strings (which the JVM did for us
-    // in uninstrumented code).
-    jstring initName = env->NewStringUTF("<init>");
-    jstring init_sig = env->NewStringUTF("()V");
-    jstring string_class_name = env->NewStringUTF("java/lang/String");
-    jclass string_class = env->FindClass("java/lang/String");
-
-    if (g_awaiting_main_call && toStdString(env, name) == "main") {
-      g_awaiting_main_call = false;
-
-      ASSERT(string_class);
-      jobjectArray init_args = env->NewObjectArray(0, string_class, NULL);
-      ASSERT(initName && init_sig && init_args);
-      const jsize N_ARGS = env->GetArrayLength((jobjectArray)args);
-
-      for (jsize i = 0; i < N_ARGS; i++) {
-        jstring arg = (jstring)env->GetObjectArrayElement(args, i);
-        DBG("got arg " << arg);
-        // DBG("pushing artificial <init> stack frame for arg "
-        //    << toStdString(env, arg));
-        Java_NativeInterface_methodEnter(
-            env, nativeinterfacecls, initName, init_sig, string_class_name,
-            NativeInterface_SPECIAL_VAL_NORMAL, arg, init_args);
-        ASSERT_EQ(toStdString(env, initName), "<init>");
-        doFramePop(toStdString(env, initName));
-
-        //env->ReleaseObjectArrayElements(init_args);
-      }
-    }
-  }
   {
     capnp::MallocMessageBuilder outermessage;
     AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
@@ -437,27 +548,9 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
     msgbuilder.setCalleeclass(toStdString(env, calleeClass));
     msgbuilder.setCalleetag(calleeTag);
     msgbuilder.setThreadName(threadName);
-
     anybuilder.setMethodenter(msgbuilder.asReader());
 
-    // stacks[getOrDoTag(SPECIAL_VAL_NORMAL, thread,
-    // "java/lang/Thread",
-    //                  thread)]
-    //    .push(std::make_pair(msgbuilder.asReader().getCalleetag(),
-    //                         msgbuilder.asReader().getName()));
-
-    // notify us once we exit the method (the method is in the frame
-    // above the current one, as the current one is the callback):
     capnp::writeMessageToFd(capnproto_fd, outermessage);
-    if (toStdString(env, calleeClass).c_str()[0] == '[') {
-      // it's an array, which means that this ctor is fake and we need to simulate the frame pop!
-      jstring initName = env->NewStringUTF("<init>");
-      auto initNameStr = toStdString(env, initName);
-      ASSERT_EQ(initNameStr, "<init>");
-      doFramePop(initNameStr);
-      // we do NOT call afterInitMethod, since the instrumenter emits this event.
-      // afterInitMethod needs the actual reference to the array, we only have SPECIAL_VAL_THIS/0x0
-    }
   }
 
   {
@@ -478,17 +571,14 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
 
         //FIXME: the caller must be the the object in the stackframe above us!
 
-        msgbuilder.setNewval(getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL,
-          arg,
-          "java/lang/Object", threadName, g_jvmti,
-          g_lock));
+        msgbuilder.setNewval(getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, arg, "java/lang/Object"));
           msgbuilder.setOldval((int64_t)0);
           msgbuilder.setVar(i);
           msgbuilder.setCallermethod(toStdString(env, name));
           // the callee of the call is the caller of the the var store:
-          msgbuilder.setCallerclass(toStdString(env, calleeClass));
+          msgbuilder.setCallerclass(calleeClassStr);
           msgbuilder.setCallertag(calleeTag);
-          msgbuilder.setThreadName(getThreadName(g_jvmti, g_lock));
+          msgbuilder.setThreadName(getThreadName());
           msgbuilder.setVar(i);
 
           anybuilder.setVarstore(msgbuilder.asReader());
@@ -500,25 +590,38 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
 #endif // ifdef ENABLED
 }
 
+bool tagFreshlyInitialisedObject(jobject callee,
+                                 std::string threadName) {
+  DBG("tagFreshlyInitialisedObject(..., threadName = " << threadName << ")");
+  if (getTag(NativeInterface_SPECIAL_VAL_NORMAL, callee, "class/unknown") != 0) {
+    return false;
+  }
+  ASSERT(g_jvmti);
+  ASSERT(callee);
+
+  jlong tag;
+  DBG("thread " << threadName << ": don't have an object ID");
+  tag = nextObjID.fetch_add(1);
+  DBG("tagging freshly initialised object with id " << tag);
+  jvmtiError err = g_jvmti->SetTag(callee, tag);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+  return true;
+}
+
+
 JNIEXPORT void JNICALL
 Java_NativeInterface_afterInitMethod(JNIEnv *env, jclass native_interface,
                                      jobject callee, jstring calleeClass) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
   DBG("afterInitMethod");
   std::string calleeClassStr = toStdString(env, calleeClass);
-  std::string threadName = getThreadName(g_jvmti, g_lock);
-  const auto &runningClass = getRunningClass(threadName);
-  //  if (!isClassInstrumented(runningClass) && runningClass!="JvmInternals") {
-  //    ERR("class "<<runningClass<<" was instrumented for java, but not for native code!");
-  //    return;
-  //  }
+  std::string threadName = getThreadName();
   DBG("afterInitMethod(..., callee="<<callee<<", calleeClass=" << calleeClass << ")");
 
   if (calleeClassStr == "ClassRep" || isClassInstrumented(calleeClassStr)) {
     DBG("class "<<calleeClass<<" is instrumented");
-    tagFreshlyInitialisedObject(g_jvmti, callee, getThreadName(g_jvmti, g_lock));
+    tagFreshlyInitialisedObject(callee, getThreadName());
   } else {
     DBG("class "<<calleeClass<<" is not instrumented");
   }
@@ -529,12 +632,11 @@ JNIEXPORT void JNICALL Java_NativeInterface_newObj(JNIEnv *, jclass, jobject,
                                                    jstring, jstring, jstring,
                                                    jobject, jobject) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
-
 // LOCK;
-// DBG("newObj");
+  ERR("newObj not implemented");
 #endif
 }
+
 
 void handleStoreFieldA(
     JNIEnv *env, jclass native_interface, jint holderKind, jobject holder,
@@ -547,25 +649,23 @@ void handleStoreFieldA(
     std::string callerMethod, jint callerKind,
     jobject caller) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
-
   LOCK;
   DBG("Java_NativeInterface_storeFieldA "<<holderClass<<"::"<<fname);
 
 //  handleValStatic(env, &holderKind, &holder, holderClass);
-auto threadName = getThreadName(g_jvmti, g_lock);
+auto threadName = getThreadName();
 //handleValStatic(env, &callerKind, &caller, callerClass);
 //handleValStatic(env, &holderKind, &holder, holderClass);
 DBG("getting caller tag");
-long callerTag = getTag(callerKind, caller, callerClass, threadName, g_jvmti);
+long callerTag = getTag(callerKind, caller, callerClass);
 DBG("getting holder tag, holderKind="<<holderKind);
-long holderTag = getTag(holderKind, holder, holderClass, threadName, g_jvmti);
+long holderTag = getTag(holderKind, holder, holderClass);
 DBG("getting oldval tag");
 long oldvaltag = getTag(NativeInterface_SPECIAL_VAL_NORMAL, oldval,
-                        type.c_str(), threadName, g_jvmti);
+                        type.c_str());
 DBG("getting newval tag");
 long newvaltag = getTag(NativeInterface_SPECIAL_VAL_NORMAL, newval,
-                        type.c_str(), threadName, g_jvmti);
+                        type.c_str());
 DBG("callertag ="<<callerTag);
 DBG("holdertag ="<<holderTag);
 DBG("newvaltag ="<<newvaltag);
@@ -585,9 +685,8 @@ msgbuilder.setOldval(oldvaltag);
 msgbuilder.setCallermethod(callerMethod);
 msgbuilder.setCallerclass(callerClass);
 msgbuilder.setCallertag(getOrDoTag(
-    callerKind, caller, msgbuilder.asReader().getCallerclass().cStr(), threadName,
-    g_jvmti, g_lock));
-msgbuilder.setThreadName(getThreadName(g_jvmti, g_lock)
+    callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
+msgbuilder.setThreadName(getThreadName()
   //getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, thread,
   //           "java/lang/Thread", thread, g_jvmti,
   //           g_lock)
@@ -604,7 +703,6 @@ JNIEXPORT void JNICALL Java_NativeInterface_storeFieldA(
     jstring _type, jstring _callerClass, jstring _callerMethod, jint callerKind,
     jobject caller) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
   std::string callerClass  = toStdString(env, _callerClass);
   std::string holderClass  = toStdString(env, _holderClass);
@@ -624,10 +722,9 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
                               jstring callerMethod, jint callerKind,
                               jobject caller) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
   DBG("Java_NativeInterface_storeVar");
-  auto threadName = getThreadName(g_jvmti, g_lock);
+  auto threadName = getThreadName();
 
   ASSERT(oldValKind != NativeInterface_SPECIAL_VAL_STATIC);
   ASSERT(newValKind != NativeInterface_SPECIAL_VAL_STATIC);
@@ -642,8 +739,7 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
 
   msgbuilder.setCallerclass(toStdString(env, callerClass));
   long newValTag = getTag(newValKind, newVal,
-                          msgbuilder.asReader().getCallerclass().cStr(),
-                          threadName, g_jvmti);
+                          msgbuilder.asReader().getCallerclass().cStr());
   DBG("newValtag="<<newValTag);
   msgbuilder.setNewval(newValTag);
   msgbuilder.setOldval(0 /* this feature is not used in the instrumentation*/);
@@ -651,9 +747,8 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
   msgbuilder.setCallermethod(toStdString(env, callerMethod));
 
   msgbuilder.setCallertag(getOrDoTag(
-      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr(), threadName,
-      g_jvmti, g_lock));
-  msgbuilder.setThreadName(getThreadName(g_jvmti, g_lock)
+      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
+  msgbuilder.setThreadName(getThreadName()
                           //getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, thread,
                           //           "java/lang/Thread", thread, g_jvmti,
                           //           g_lock)
@@ -671,9 +766,8 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
                              jstring callerMethod, jint callerKind,
                              jobject caller) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
-  auto threadName = getThreadName(g_jvmti, g_lock);
+  auto threadName = getThreadName();
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
   DBG("Java_NativeInterface_loadVar " << var << " in "
                                       << toStdString(env, callerClass) << "::"
@@ -687,10 +781,10 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
   capnp::MallocMessageBuilder innermessage;
   VarLoadEvt::Builder msgbuilder = innermessage.initRoot<VarLoadEvt>();
   long valTag = getTag(valKind, val,
-                       "no/var/class/available", threadName, g_jvmti);
+                       "no/var/class/available");
   long callerTag =
       getTag(NativeInterface_SPECIAL_VAL_NORMAL, caller,
-             toStdString(env, callerClass), threadName, g_jvmti);
+             toStdString(env, callerClass));
 
   msgbuilder.setVal(valTag);
   DBG("valTag    = " << valTag);
@@ -700,9 +794,8 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
   msgbuilder.setCallermethod(toStdString(env, callerMethod));
   msgbuilder.setCallerclass(toStdString(env, callerClass));
   msgbuilder.setCallertag(getOrDoTag(
-      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr(), threadName,
-      g_jvmti, g_lock));
-  msgbuilder.setThreadName(getThreadName(g_jvmti, g_lock)
+      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
+  msgbuilder.setThreadName(getThreadName()
                           //getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, threadName,
                           //           "java/lang/Thread", threadName, g_jvmti,
                           //           g_lock)
@@ -722,9 +815,8 @@ void handleModify(JNIEnv *env, jclass native_interface,
                   jobject caller,
                   std::string callerClass) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
-  auto threadName = getThreadName(g_jvmti, g_lock);
+  auto threadName = getThreadName();
   DBG("Java_NativeInterface_modify");
 
   capnp::MallocMessageBuilder outermessage;
@@ -736,22 +828,16 @@ void handleModify(JNIEnv *env, jclass native_interface,
   msgbuilder.setCalleeclass(calleeClass);
   DBG("...");
   msgbuilder.setCalleetag(getOrDoTag(
-      calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr(), threadName,
-      g_jvmti, g_lock));
+      calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr()));
       DBG("...");
   msgbuilder.setFname(fname);
   DBG("...");
   msgbuilder.setCallerclass(callerClass);
   DBG("...");
   msgbuilder.setCallertag(getOrDoTag(
-      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr(), threadName,
-      g_jvmti, g_lock));
+      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
       DBG("...");
-  msgbuilder.setThreadName(getThreadName(g_jvmti, g_lock)
-                          //getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, threadName,
-                          //           "java/lang/Thread", threadName, g_jvmti,
-                          //           g_lock)
-                          );
+  msgbuilder.setThreadName(getThreadName());
 
                           DBG("...");
   anybuilder.setReadmodify(msgbuilder.asReader());
@@ -768,7 +854,6 @@ Java_NativeInterface_modify(JNIEnv *env, jclass native_interface,
                             jstring calleeClass, jstring fname, jint callerKind,
                             jobject caller, jstring callerClass) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   handleModify(env, native_interface,
     calleeKind,
     callee,
@@ -789,9 +874,8 @@ void handleRead(JNIEnv *env, jclass native_interface,
                 jobject caller,
                 std::string callerClass) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
-  auto threadName = getThreadName(g_jvmti, g_lock);
+  auto threadName = getThreadName();
   DBG("Java_NativeInterface_read");
   //handleValStatic(env, &calleeKind, &callee, calleeClass);
   //handleValStatic(env, &callerKind, &caller, callerClass);
@@ -803,18 +887,12 @@ void handleRead(JNIEnv *env, jclass native_interface,
   msgbuilder.setIsModify(false);
   msgbuilder.setCalleeclass(calleeClass);
   msgbuilder.setCalleetag(getOrDoTag(
-      calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr(), threadName,
-      g_jvmti, g_lock));
+      calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr()));
   msgbuilder.setFname(fname);
   msgbuilder.setCallerclass(callerClass);
   msgbuilder.setCallertag(getOrDoTag(
-      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr(), threadName,
-      g_jvmti, g_lock));
-  msgbuilder.setThreadName(getThreadName(g_jvmti, g_lock)
-                          //getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, threadName,
-                          //           "java/lang/Thread", threadName, g_jvmti,
-                          //           g_lock)
-                        );
+      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
+  msgbuilder.setThreadName(getThreadName());
 
   anybuilder.setReadmodify(msgbuilder.asReader());
 
@@ -828,7 +906,6 @@ Java_NativeInterface_read(JNIEnv *env, jclass nativeInterface, jint calleeKind,
                           jobject callee, jstring calleeClass, jstring fname,
                           jint callerKind, jobject caller, jstring callerClass) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   LOCK;
   handleRead(env, nativeInterface, calleeKind, callee, toStdString(env, calleeClass), toStdString(env, fname), callerKind, caller, toStdString(env, callerClass));
 #endif // ifdef ENABLED
@@ -841,10 +918,9 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
                       std::string callerMethod, jint callerKind,
                  jobject caller) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
   DBG("Java_NativeInterface_loadFieldA");
-  auto threadName = getThreadName(g_jvmti, g_lock);
+  auto threadName = getThreadName();
   //handleValStatic(env, &holderKind, &holder, holderClass);
   //handleValStatic(env, &callerKind, &caller, callerClass);
 
@@ -856,26 +932,23 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
   msgbuilder.setHolderclass(holderClass);
   DBG("blip")
   msgbuilder.setHoldertag(getOrDoTag(
-      holderKind, holder, msgbuilder.asReader().getHolderclass().cStr(), threadName,
-      g_jvmti, g_lock));
+      holderKind, holder, msgbuilder.asReader().getHolderclass().cStr()));
       DBG("blip")
   msgbuilder.setFname(fname);
   DBG("blip")
   msgbuilder.setType(type);
   DBG("blip")
   msgbuilder.setVal(getTag(NativeInterface_SPECIAL_VAL_NORMAL, val,
-                           msgbuilder.asReader().getType().cStr(), threadName,
-                           g_jvmti));
+                           msgbuilder.asReader().getType().cStr()));
                            DBG("blip")
   msgbuilder.setCallermethod(callerMethod);
   DBG("blip")
   msgbuilder.setCallerclass(callerClass);
   DBG("blip")
   msgbuilder.setCallertag(getTag(
-      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr(), threadName,
-      g_jvmti));
+      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
       DBG("blip")
-  msgbuilder.setThreadName(getThreadName(g_jvmti, g_lock));
+  msgbuilder.setThreadName(getThreadName());
   DBG("blip")
 
   anybuilder.setFieldload(msgbuilder.asReader());
@@ -894,7 +967,6 @@ Java_NativeInterface_loadFieldA(JNIEnv *env, jclass native_interface,
                                 jstring _callerMethod, jint callerKind,
                                 jobject caller) {
 #ifdef ENABLED
-  SKIP_BEFORE_LIVE;
   std::string holderClass = toStdString(env, _holderClass);
   std::string fname = toStdString(env, _fname);
   std::string type = toStdString(env, _type);
@@ -918,7 +990,6 @@ void JNICALL VMObjectAlloc(jvmtiEnv *jvmti_env, JNIEnv *env, jthread threadName,
 void JNICALL cbObjectFree(jvmtiEnv *env, jlong tag) {
 #ifdef ENABLED
   DBG("cbObjectFree");
-
   capnp::MallocMessageBuilder outermessage;
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
   capnp::MallocMessageBuilder innermessage;
@@ -930,40 +1001,6 @@ void JNICALL cbObjectFree(jvmtiEnv *env, jlong tag) {
   capnp::writeMessageToFd(capnproto_fd, outermessage);
 #endif // ifdef ENABLED
 }
-
-/*******************************************************************/
-/* JVMTI System Callbacks
-   Callbacks from the JVM to the agent.
-
-   * Agent_OnLoad is automatically invoked by the JVM if the
-   agentflag is passed to JAVA.
-
-   * The rest are set to be invoked in Agent_OnLoad. */
-/*******************************************************************/
-
-//bool isBlackListedClassName(const std::string &name) {
-//  if ( // strstr(name.c_str(), "java/lang/invoke") ||
-//          strstr(name.c_str(), "NativeInterface") ||
-//          strstr(name.c_str(), "ClassRep") ||
-//          //strstr(name.c_str(), "java/security") ||
-//          //strstr(name.c_str(), "java/lang/") ||
-//          //strstr(name.c_str(), "sun/reflect/")
-//          // strstr(name.c_str(), "java/lang/Thread") ||
-//          strstr(name.c_str(), "java/lang/ClassLoader") ||
-//          strstr(name.c_str(), "NoClassDefFoundError") ||
-//          strstr(name.c_str(), "java/lang/Object") ||
-//          strstr(name.c_str(), "Exception") ||
-//          // strstr(name.c_str(), "java/lang/Object") ||
-//          // strstr(name.c_str(), "java/lang/ref/") ||
-//          //||      strstr(name.c_str(), "java/lang/Class" )
-//          ////      strstr(name.c_str(), "Throwable" )
-//          false
-//          ) {
-//    return true;
-//  } else {
-//    return false;
-//  }
-//}
 
 /*
   Sent by the VM when a classes is being loaded into the VM
@@ -979,9 +1016,6 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
                   jint *new_class_data_len, unsigned char **new_class_data) {
 #ifdef ENABLED
   LOCK;
-  if (!_name) {
-    return; // THIS HAPPENS! WHY? Maybe anonymous classes?! TODO Write test
-  }
   ASSERT(_name);
   ASSERT(class_data);
 
@@ -991,12 +1025,12 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
     //if  (!isWhiteListedClassName(name)) {
     //  // when running tests, only instrument the application code
       DBG("skipping class "<<name<<" (still using bootstrap classloader)");
-      if (!isClassInstrumented(name)) {
-        // class is not in xbootclasspath!
-        DBG("marking");
-        markClassAsUninstrumented(name);
-      }
-      DBG("...returning");
+      //      if (!isClassInstrumented(name)) {
+      //        // class is not in xbootclasspath!
+      //        DBG("marking");
+      //        markClassAsUninstrumented(name);
+      //      }
+      //      DBG("...returning");
       return;
   }
 
@@ -1047,33 +1081,9 @@ jvmtiIterationControl JNICALL handleUntaggedObject(jlong class_tag,
 
   std::vector<long> *freshlyTagged = (std::vector<long>*)user_data;
   *tag_ptr = nextObjID.fetch_add(1);
-  std::cout << "setting tag "<< *tag_ptr<<"\n";
   freshlyTagged->push_back(*tag_ptr);
 
   return JVMTI_ITERATION_CONTINUE;
-}
-
-std::string getTypeForTag(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jlong tag) {
-  jint count = -1;
-  jobject *obj_res = NULL;
-  jvmti_env->GetObjectsWithTags(1,  // Tag count
-                                &tag,
-                                &count,
-                                &obj_res,
-                                NULL);
-
-  ASSERT_EQ(count, 1);
-  std::string ret = "<unknownType>";
-
-  jclass klassKlass = jni_env->FindClass("java/lang/Class");
-  jmethodID getName = jni_env->GetMethodID(klassKlass, "getName", "()Ljava/lang/String;");
-  ASSERT(getName != NULL);
-
-  jclass klass = jni_env->GetObjectClass(*obj_res);
-  jstring name = (jstring)jni_env->CallObjectMethod(klass, getName);
-  ASSERT(name != NULL);
-  jvmti_env->Deallocate((unsigned char*)obj_res);
-  return toStdString(jni_env, name);
 }
 
 /*
@@ -1088,32 +1098,55 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
 
   g_init = true;
 
-  std::vector<long> freshlyTagged;
+  {
+    // tag objects that have not been tagged yet!
+    std::vector<long> freshlyTagged;
 
-  jvmtiError err =
-    env->IterateOverHeap(JVMTI_HEAP_OBJECT_UNTAGGED,
-                         handleUntaggedObject,
-                         &freshlyTagged);
+    jvmtiError err =
+      env->IterateOverHeap(JVMTI_HEAP_OBJECT_UNTAGGED,
+                           handleUntaggedObject,
+                           &freshlyTagged);
+    ASSERT_NO_JVMTI_ERR(env, err);
 
-  for (auto it = freshlyTagged.begin(); it != freshlyTagged.end(); ++it) {
-    std::cout << "emitting for "<<*it<<"\n";
-    capnp::MallocMessageBuilder outermessage;
-    AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
-    capnp::MallocMessageBuilder innermessage;
-    MethodEnterEvt::Builder msgbuilder =
-      innermessage.initRoot<MethodEnterEvt>();
-    msgbuilder.setName("<init>");
-    msgbuilder.setSignature("(<unknown>)V");
-    msgbuilder.setCalleeclass(getTypeForTag(env, jni, *it));
-    msgbuilder.setCalleetag(*it);
-    msgbuilder.setThreadName("JVM_Thread<?>");
+    for (auto it = freshlyTagged.begin(); it != freshlyTagged.end(); ++it) {
+      capnp::MallocMessageBuilder outermessage;
+      AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
+      capnp::MallocMessageBuilder innermessage;
+      MethodEnterEvt::Builder msgbuilder =
+        innermessage.initRoot<MethodEnterEvt>();
+      msgbuilder.setName("<init>");
+      msgbuilder.setSignature("(<unknown>)V");
+      msgbuilder.setCalleeclass(getTypeForTag(env, jni, *it));
+      msgbuilder.setCalleetag(*it);
+      msgbuilder.setThreadName("JVM_Thread<?>");
 
-    anybuilder.setMethodenter(msgbuilder.asReader());
+      anybuilder.setMethodenter(msgbuilder.asReader());
 
-    capnp::writeMessageToFd(capnproto_fd, outermessage);
+      capnp::writeMessageToFd(capnproto_fd, outermessage);
+    }
   }
 
-  ASSERT_NO_JVMTI_ERR(env, err);
+  {
+    // tag objects that have gotten a tag due to use of getOrDoTag
+    for (auto it = irregularlyTagged.begin(); it != irregularlyTagged.end(); ++it) {
+      auto typ = getTypeForTag(g_jvmti, jni, *it);
+      DBG("actual type for obj #"<<*it<<" is "<< typ);
+      capnp::MallocMessageBuilder outermessage;
+      AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
+      capnp::MallocMessageBuilder innermessage;
+      MethodEnterEvt::Builder msgbuilder =
+        innermessage.initRoot<MethodEnterEvt>();
+      msgbuilder.setName("<init>");
+      msgbuilder.setSignature("(<unknown>)V");
+      msgbuilder.setCalleeclass(typ);
+      msgbuilder.setCalleetag(*it);
+      msgbuilder.setThreadName("JVM_Thread<?>");
+
+      anybuilder.setMethodenter(msgbuilder.asReader());
+
+      capnp::writeMessageToFd(capnproto_fd, outermessage);
+    }
+  }
 
   #endif // ENABLED
 }
@@ -1194,7 +1227,7 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   memset(&capabilities, 0, sizeof(jvmtiCapabilities));
   capabilities.can_generate_all_class_hook_events = 1;
   capabilities.can_tag_objects = 1;
-  //  capabilities.can_access_local_variables = 1;
+  capabilities.can_access_local_variables = 1;
   capabilities.can_generate_object_free_events = 1;
   capabilities.can_generate_vm_object_alloc_events = 1;
   capabilities.can_generate_exception_events = 1;

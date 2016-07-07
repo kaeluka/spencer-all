@@ -48,9 +48,9 @@ object EventsUtil {
       case Events.AnyEvt.Which.VARSTORE=>
         val vs = evt.getVarstore()
         "varstore -"+
-          ", caller="+vs.getCallerclass() +" :: "+vs.getCallermethod()+ " @ " + vs.getCallertag()+
+          " caller="+vs.getCallerclass() +" :: "+vs.getCallermethod()+ " @ " + vs.getCallertag()+
           ", value= was "+vs.getOldval()+", is "+vs.getNewval()+
-          "thread="+vs.getThreadName()
+          ", thread="+vs.getThreadName()
       case other => ("<unknonwn event kind " + other + ">")
     }
   }

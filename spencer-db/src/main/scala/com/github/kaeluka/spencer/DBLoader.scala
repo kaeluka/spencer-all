@@ -42,11 +42,11 @@ object DBLoader {
 
     val sc : SparkContext = startSpark()
 
-    new TraceFileIterator(new File("/tmp/tracefile"))
-      .take(30)
-      .foreach(
-        evt => println(EventsUtil.messageToString(evt))
-      )
+//    new TraceFileIterator(new File("/tmp/tracefile"))
+//      .take(30)
+//      .foreach(
+//        evt => println(EventsUtil.messageToString(evt))
+//      )
 
     sc.stop()
 
