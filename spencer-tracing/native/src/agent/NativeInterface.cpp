@@ -16,6 +16,7 @@
 
 #include <netdb.h>
 #include <netinet/tcp.h>
+#include <stdlib.h>
 
 using namespace std;
 
@@ -55,14 +56,6 @@ static bool g_init = false;
 static bool g_dead = false;
 
 jvmtiError g_jvmtiError;
-
-// true if the application's class loader has been active
-static bool g_had_loader = false;
-
-// true if the application's class
-// loader has JUST gotten active and
-// main hasn't been called yet:
-static bool g_awaiting_main_call = false;
 
 string kindToStr(jint v) {
   ASSERT(NativeInterface_SPECIAL_VAL_NORMAL <= v &&
@@ -183,9 +176,8 @@ uint32_t recvClass(int sock, unsigned char **data) {
   return rlen;
 }
 
-void sendClass(int sock, const unsigned char *data, uint32_t len,
-               std::string name) {
-  DBG("sending class " << name << ", length = " << len);
+void sendClass(int sock, const unsigned char *data, uint32_t len) {
+  DBG("sending class, length = " << len);
   union {
     uint32_t i;
     unsigned char bs[4];
@@ -202,6 +194,16 @@ void sendClass(int sock, const unsigned char *data, uint32_t len,
   //send(sock, empty, sizeof(empty), 0);
   closeSocket(sock);
 }
+
+void transformClass(const unsigned char *class_data, uint32_t class_data_len, unsigned char **new_class_data, uint32_t *new_class_data_len) {
+  int sock;
+  sock = setupSocket();
+  sendClass(sock, class_data, class_data_len);
+
+  sock = setupSocket();
+  *new_class_data_len = recvClass(sock, new_class_data);
+}
+
 void handleLoadFieldA(
   JNIEnv *env, jclass native_interface,
   jobject val, jint holderKind, jobject holder,
@@ -1002,6 +1004,16 @@ void JNICALL cbObjectFree(jvmtiEnv *env, jlong tag) {
 #endif // ifdef ENABLED
 }
 
+// prefixes of classes that will not be instrumented before the live phase:
+std::vector<std::string> onlyDuringLivePhaseMatch;
+
+struct SpencerClassRedefinition {
+  std::string name;
+  jvmtiClassDefinition klassDef;
+};
+
+std::vector<SpencerClassRedefinition> redefineDuringLivePhase;
+
 /*
   Sent by the VM when a classes is being loaded into the VM
 
@@ -1020,26 +1032,40 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
   ASSERT(class_data);
 
   std::string name(_name);
-
-  if (!g_init) {
-    //if  (!isWhiteListedClassName(name)) {
-    //  // when running tests, only instrument the application code
-      DBG("skipping class "<<name<<" (still using bootstrap classloader)");
-      //      if (!isClassInstrumented(name)) {
-      //        // class is not in xbootclasspath!
-      //        DBG("marking");
-      //        markClassAsUninstrumented(name);
-      //      }
-      //      DBG("...returning");
-      return;
-  }
-
-  if (loader && !g_had_loader) {
-    g_had_loader = true;
-    g_awaiting_main_call = true;
-  }
-
   DBG("ClassFileLoadHook: " << name);
+
+  if (class_being_redefined != NULL) {
+    //this is a call from RedefineClass. The class has been transformed already;
+    DODBG("class "<<name<<" has been redefined -- len="<<class_data_len);
+    return;
+  }
+
+  if (name == "NativeInterface") {
+    return;
+  }
+
+  if (!isInLivePhase()) {
+    //check whether the class is marked as 'tricky'. If so, it should not be transformed now, but
+    //redefined later.
+    for (auto it = onlyDuringLivePhaseMatch.begin(); it != onlyDuringLivePhaseMatch.end(); ++it) {
+
+      auto res = std::mismatch(it->begin(), it->end(), name.begin());
+
+      if (res.first == it->end()) {
+        DODBG("postponing transformation of class "<<name<<" -- len="<<class_data_len);
+        // match string is a prefix of class name
+        SpencerClassRedefinition redef;
+        redef.name = name;
+        redef.klassDef.klass = NULL;
+        redef.klassDef.class_byte_count = class_data_len;
+        unsigned char *class_data_cpy = (unsigned char*)malloc(class_data_len);
+        memcpy(class_data_cpy, class_data, class_data_len);
+        redef.klassDef.class_bytes = class_data_cpy;
+        redefineDuringLivePhase.push_back(redef);
+        return;
+      }
+    }
+  }
 
   jvmtiPhase phase;
   if (jvmti_env->GetPhase(&phase) != JVMTI_ERROR_NONE) {
@@ -1050,12 +1076,7 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
   DBG("g_init = " << g_init);
 
   DBG("instrumenting class " << name);
-  int sock;
-  sock = setupSocket();
-  sendClass(sock, class_data, class_data_len, name);
-
-  sock = setupSocket();
-  *new_class_data_len = recvClass(sock, new_class_data);
+  transformClass(class_data, class_data_len, new_class_data, (uint32_t*)new_class_data_len);
   int minLen = *new_class_data_len < class_data_len ? *new_class_data_len : class_data_len;
   if ((class_data_len != *new_class_data_len) ||
       (memcmp(class_data, *new_class_data, minLen) != 0)) {
@@ -1148,6 +1169,24 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
     }
   }
 
+  {
+    // redefine classes that we could not transform during the primordial
+    // phase:
+    for (auto redef = redefineDuringLivePhase.begin(); redef != redefineDuringLivePhase.end(); ++redef) {
+      DBG("redefining klass "<<redef->name);
+      unsigned char *new_class_data;
+      uint32_t new_class_data_len;
+      transformClass(redef->klassDef.class_bytes, redef->klassDef.class_byte_count, &new_class_data, &new_class_data_len);
+      free((void*)redef->klassDef.class_bytes);
+      redef->klassDef.class_bytes = new_class_data;
+      redef->klassDef.class_byte_count = new_class_data_len;
+      redef->klassDef.klass = jni->FindClass(redef->name.c_str());
+      DBG("redefining class "<<redef->name<<" -- len="<<redef->klassDef.class_byte_count);
+      jvmtiError err = g_jvmti->RedefineClasses(1, &redef->klassDef);
+      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+    }
+  }
+
   #endif // ENABLED
 }
 
@@ -1194,10 +1233,31 @@ void parse_options(std::string options) {
 */
 JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   DBG("Agent_OnLoad");
-  //if (options == NULL){
-  //  options = std::string("").c_str();
-  //}
-  // LOCK;
+
+  {
+    onlyDuringLivePhaseMatch.push_back("java/lang/Object");
+    onlyDuringLivePhaseMatch.push_back("java/lang/Class");
+    onlyDuringLivePhaseMatch.push_back("java/lang/ClassLoader");
+    onlyDuringLivePhaseMatch.push_back("java/lang/Thread");
+    onlyDuringLivePhaseMatch.push_back("java/security/AccessControlContext");
+    onlyDuringLivePhaseMatch.push_back("java/util/AbstractCollection");
+    onlyDuringLivePhaseMatch.push_back("java/util/AbstractList");
+    onlyDuringLivePhaseMatch.push_back("java/util/HashMap");
+    onlyDuringLivePhaseMatch.push_back("java/util/Vector");
+    onlyDuringLivePhaseMatch.push_back("java/util/LinkedList$ListItr");
+    onlyDuringLivePhaseMatch.push_back("java/lang/Shutdown");
+    onlyDuringLivePhaseMatch.push_back("java/lang/System");
+    onlyDuringLivePhaseMatch.push_back("java/lang/String");
+    onlyDuringLivePhaseMatch.push_back("java/lang/Float");
+    onlyDuringLivePhaseMatch.push_back("java/lang/ref");
+    onlyDuringLivePhaseMatch.push_back("sun/nio/cs");
+    onlyDuringLivePhaseMatch.push_back("java/io/File");
+    onlyDuringLivePhaseMatch.push_back("java/io/FileOutputStream");
+    onlyDuringLivePhaseMatch.push_back("java/io/PrintStream");
+    onlyDuringLivePhaseMatch.push_back("java/util/Hashtable");
+    onlyDuringLivePhaseMatch.push_back("sun/util/PreHashedMap");
+    onlyDuringLivePhaseMatch.push_back("sun/launcher/");
+  }
 
   jvmtiError error;
   jint res;
@@ -1231,6 +1291,8 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   capabilities.can_generate_object_free_events = 1;
   capabilities.can_generate_vm_object_alloc_events = 1;
   capabilities.can_generate_exception_events = 1;
+  capabilities.can_redefine_classes = 1;
+  capabilities.can_redefine_any_class = 1;
   error = g_jvmti->AddCapabilities(&capabilities);
   ASSERT_NO_JVMTI_ERR(g_jvmti, error);
 
@@ -1262,13 +1324,15 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   error = g_jvmti->CreateRawMonitor((char *)"Callbacks Lock", &g_lock);
   ASSERT_NO_JVMTI_ERR(g_jvmti, error);
 
-  //#endif // ifdef ENABLED
-
-  DBG("extending bootstrap classloader search");
-  error = g_jvmti->AddToBootstrapClassLoaderSearch("./");
-  ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
-  error = g_jvmti->AddToBootstrapClassLoaderSearch("/Users/stebr742/.m2/repository/com/github/kaeluka/spencer-tracing-jni/0.1.2-SNAPSHOT/");
-  ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
+  {
+    DBG("extending bootstrap classloader search");
+    //FIXME I think we don't need ./ any longer:
+    error = g_jvmti->AddToBootstrapClassLoaderSearch("./");
+    ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
+    //FIXME hard coded path:
+    error = g_jvmti->AddToBootstrapClassLoaderSearch("/Users/stebr742/.m2/repository/com/github/kaeluka/spencer-tracing-jni/0.1.3-SNAPSHOT/");
+    ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
+  }
 
   DBG("extending bootstrap classloader search: done");
   return JNI_OK;
@@ -1279,7 +1343,7 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   exports the events.
 */
 JNIEXPORT void JNICALL Agent_OnUnload(JavaVM *vm) {
-  //DODBG("Agent_OnUnload");
+  DBG("Agent_OnUnload");
 #ifdef ENABLED
   {
     //  int cnt = 0;
@@ -1294,7 +1358,7 @@ JNIEXPORT void JNICALL Agent_OnUnload(JavaVM *vm) {
     //     DODBG("uninstrumented "<<++cnt<<"/"<<uninstrumentedClasses.size()
     //                       <<": class "<<*it);
     //  }
-    //DODBG("instrumented "<<instrumentedClasses.size()<<" classes, skipped "<<uninstrumentedClasses.size());
+    DBG("instrumented "<<instrumentedClasses.size()<<" classes, skipped "<<uninstrumentedClasses.size());
   }
 #endif // ifdef ENABLED
 }

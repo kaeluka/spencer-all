@@ -5,7 +5,7 @@ import java.io.File;
 public class Util {
 	public static boolean isClassNameBlacklisted(String name) {
 		final String[] blackList = {
-				"java/lang/Object",
+/*				"java/lang/Object",
 				"java/lang/Class",
 				"java/lang/Class$",
 				"java/lang/ClassLoader",
@@ -32,11 +32,10 @@ public class Util {
 				"sun/util/PreHashedMap", //NEW
 //				"java/lang/Properties",
 //				"java/util/HashTable",
-				"sun/launcher/",
+				"sun/launcher/",*/
 		};
 		for (String b : blackList) {
 			if (name.contains(b)) {
-//				System.out.println("BLACKLISTED NAME: "+name);
 				return true;
 			}
 		}

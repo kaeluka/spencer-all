@@ -75,14 +75,15 @@ class SpencerDB(val keyspace: String) {
     if (! session.execute("SELECT id FROM "+this.keyspace+".objects WHERE id = "+tag).isExhausted) {
       throw new IllegalStateException("already have object #"+tag);
     }
-      //      session.executeAsync("INSERT INTO objects(id, klass, comment) VALUES("
-      //        + tag + ", '"
-      //        + klass + "', '"
-      //        + comment + "');")
-      session.executeAsync(this.insertObjectStatement.bind(
-        tag : java.lang.Long,
-        klass,
-        comment))
+    //      session.executeAsync("INSERT INTO objects(id, klass, comment) VALUES("
+    //        + tag + ", '"
+    //        + klass + "', '"
+    //        + comment + "');")
+
+    session.executeAsync(this.insertObjectStatement.bind(
+      tag : java.lang.Long,
+      klass,
+      comment))
   }
 
   def insertEdge(caller: Long, callee: Long, kind: String, start: Long, comment: String = "none") {
