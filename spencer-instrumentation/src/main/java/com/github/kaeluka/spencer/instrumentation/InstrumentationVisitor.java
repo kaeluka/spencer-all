@@ -1007,20 +1007,21 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 					throw new IllegalArgumentException("don't understand primitive type operand "+operand);
 				}
 				super.visitInsn(DUP);
-				//FIXME: the type below should be arrayType, right?
-				super.visitLdcInsn("[Ljava/lang/Object;");
 				super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
 						"afterInitMethod",
 						"(Ljava/lang/Object;"
 								+ "Ljava/lang/String;"
 								+")V",
 								false);
+				super.visitInsn(DUP);
 				super.visitLdcInsn("<init>");
+				super.visitInsn(SWAP);
 				super.visitLdcInsn("(I)V");
+				super.visitInsn(SWAP);
 				this.visitLdcInsn(arrayType);
-                //FIXME: SPECIAL_VAL_THIS and ACONST_NULL should go, right?
-				this.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
-				this.visitInsn(ACONST_NULL);
+				super.visitInsn(SWAP);
+				this.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
+				super.visitInsn(SWAP);
 				this.visitInsn(ACONST_NULL);
 				super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
 						"methodEnter",
@@ -1048,15 +1049,20 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 								+ "Ljava/lang/String;"
 								+")V",
 								false);
+                super.visitInsn(DUP);
 				super.visitLdcInsn("<init>");
+                super.visitInsn(SWAP);
 				super.visitLdcInsn("(I)V");
+                super.visitInsn(SWAP);
 				if (isArrayType(type)) {
 					this.visitLdcInsn("["+type+";");
 				} else {
 					this.visitLdcInsn("[L"+type+";");
 				}
-				this.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
-				this.visitInsn(ACONST_NULL);
+                super.visitInsn(SWAP);
+				this.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
+                super.visitInsn(SWAP);
+//				this.visitInsn(ACONST_NULL);
 				this.visitInsn(ACONST_NULL);
 				super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
 						"methodEnter",
