@@ -34,16 +34,11 @@ extern DebugSummary summary;
   { DODBG(str); }
 #endif
 
-#ifdef NODEBUG
-#define WARN(str)                                                              \
-  {}
-#else
 #define WARN(str)                                                              \
   {                                                                            \
     std::cout << __FILE__ << ":" << __LINE__ << ": WARN "                      \
               << ": " << str << std::endl;                                     \
   }
-#endif
 
 #define ASSERT(exp) {if (!(exp)) { ERR("assertion failed!"); }}
 #define ASSERT_MSG(exp, msg) {if (!(exp)) { ERR("assertion failed: "<<msg); }}

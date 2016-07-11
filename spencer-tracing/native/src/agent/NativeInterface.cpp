@@ -397,34 +397,53 @@ jobject getThis() {
   }
 }
 
-std::string getTypeForObj(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jobject obj) {
+std::string getToString(JNIEnv *jni_env, jobject obj) {
   jclass klassKlass = jni_env->FindClass("java/lang/Class");
-  jmethodID getName = jni_env->GetMethodID(klassKlass, "getName", "()Ljava/lang/String;");
+  jmethodID toString = jni_env->GetMethodID(klassKlass, "toString", "()Ljava/lang/String;");
+  ASSERT(toString != NULL);
+
+  jclass klass = jni_env->GetObjectClass(obj);
+  jstring ret = (jstring)jni_env->CallObjectMethod(klass, toString);
+
+  jvmtiError err = g_jvmti->SetTag(ret, NativeInterface_SPECIAL_VAL_NOT_INSTRUMENTED);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+
+  return toStdString(jni_env, ret);
+}
+
+std::string getTypeForObj(JNIEnv *jni_env, jobject obj) {
+  jclass klassKlass = jni_env->FindClass("java/lang/Class");
+  jmethodID getName = jni_env->GetMethodID(klassKlass, "getCanonicalName", "()Ljava/lang/String;");
   ASSERT(getName != NULL);
 
   jclass klass = jni_env->GetObjectClass(obj);
   jstring name = (jstring)jni_env->CallObjectMethod(klass, getName);
   //ASSERT(name != NULL);
 
-  return toStdString(jni_env, name);
+  jvmtiError err = g_jvmti->SetTag(name, NativeInterface_SPECIAL_VAL_NOT_INSTRUMENTED);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+
+  std::string nameStr = toStdString(jni_env, name);
+
+  return nameStr;
 }
 
-std::string getTypeForThis(jvmtiEnv *jvmti_env, JNIEnv *jni_env) {
-  return getTypeForObj(jvmti_env, jni_env, getThis());
+std::string getTypeForThis(JNIEnv *jni_env) {
+  return getTypeForObj(jni_env, getThis());
 }
 
 
 std::string getTypeForObjKind(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jobject obj, jint kind, jstring definitionKlass) {
   switch (kind) {
   case NativeInterface_SPECIAL_VAL_NORMAL: {
-    return getTypeForObj(jvmti_env, jni_env, obj);
+    return getTypeForObj(jni_env, obj);
   }
   case NativeInterface_SPECIAL_VAL_THIS: {
     jobject _this = getThis();
     if (_this == NULL) {
       return toStdString(jni_env, definitionKlass);
     } else {
-      return getTypeForObj(jvmti_env, jni_env, _this);
+      return getTypeForObj(jni_env, _this);
     }
   }
   case NativeInterface_SPECIAL_VAL_STATIC: {
@@ -435,23 +454,23 @@ std::string getTypeForObjKind(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jobject obj,
   }
 }
 
-std::string getTypeForTag(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jlong tag) {
+std::string getTypeForTag(JNIEnv *jni_env, jlong tag) {
   jint count = -1;
   jobject *obj_res = NULL;
-  jvmti_env->GetObjectsWithTags(1,  // Tag count
-                                &tag,
-                                &count,
-                                &obj_res,
-                                NULL);
+  g_jvmti->GetObjectsWithTags(1,  // Tag count
+                              &tag,
+                              &count,
+                              &obj_res,
+                              NULL);
   if (count == 0) {
     return "<unknown>";
   }
 
   ASSERT_EQ(count, 1);
 
-  std::string ret = getTypeForObj(jvmti_env, jni_env, *obj_res);
+  std::string ret = getTypeForObj(jni_env, *obj_res);
 
-  jvmti_env->Deallocate((unsigned char*)obj_res);
+  g_jvmti->Deallocate((unsigned char*)obj_res);
 
   return ret;
 }
@@ -494,12 +513,14 @@ long getTag(jint objkind, jobject jobj, std::string klass) {
 
 std::vector<long> irregularlyTagged;
 
-long getOrDoTag(jint objkind, jobject jobj, std::string klass) {
+long getOrDoTag(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
   jlong tag = getTag(objkind, jobj, klass);
   if (tag == 0) {
     tag = doTag(g_jvmti, jobj);
     if (isInLivePhase()) {
-      WARN("irregularly tagged object #"<<tag<<" in live phase");
+      LOCK;
+      WARN("irregularly tagged object #"<<tag<<" : "//<<getTypeForTag(jni, tag)
+           <<" (as string: "<<getToString(jni, jobj)<<") in live phase");
     } else {
       irregularlyTagged.push_back(tag);
     }
@@ -538,7 +559,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
     calleeTag = getClassRepTag(calleeClassStr);
     calleeClassStr = toStdString(env, calleeClass);
   } else {
-    calleeTag = getOrDoTag(calleeKind, callee, toStdString(env, calleeClass));
+    calleeTag = getOrDoTag(env, calleeKind, callee, toStdString(env, calleeClass));
   }
   //handleValStatic(env, &calleeKind, &callee, calleeClass);
   DBG("callee tag = " << calleeTag);
@@ -632,7 +653,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
 
         //FIXME: the caller must be the the object in the stackframe above us!
 
-        msgbuilder.setNewval(getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, arg, "java/lang/Object"));
+        msgbuilder.setNewval(getOrDoTag(env, NativeInterface_SPECIAL_VAL_NORMAL, arg, "java/lang/Object"));
           msgbuilder.setOldval((int64_t)0);
           msgbuilder.setVar(i);
           msgbuilder.setCallermethod(nameStr);
@@ -749,7 +770,7 @@ msgbuilder.setNewval(newvaltag);
 msgbuilder.setOldval(oldvaltag);
 msgbuilder.setCallermethod(callerMethod);
 msgbuilder.setCallerclass(callerClass);
-msgbuilder.setCallertag(getOrDoTag(
+msgbuilder.setCallertag(getOrDoTag(env,
     callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
 msgbuilder.setThreadName(getThreadName()
   //getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, thread,
@@ -811,13 +832,9 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
   msgbuilder.setVar(var);
   msgbuilder.setCallermethod(toStdString(env, callerMethod));
 
-  msgbuilder.setCallertag(getOrDoTag(
+  msgbuilder.setCallertag(getOrDoTag(env,
       callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
-  msgbuilder.setThreadName(getThreadName()
-                          //getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, thread,
-                          //           "java/lang/Thread", thread, g_jvmti,
-                          //           g_lock)
-                        );
+  msgbuilder.setThreadName(getThreadName());
 
   anybuilder.setVarstore(msgbuilder.asReader());
   capnp::writeMessageToFd(capnproto_fd, outermessage);
@@ -858,13 +875,9 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
   msgbuilder.setVar((char)var);
   msgbuilder.setCallermethod(toStdString(env, callerMethod));
   msgbuilder.setCallerclass(toStdString(env, callerClass));
-  msgbuilder.setCallertag(getOrDoTag(
+  msgbuilder.setCallertag(getOrDoTag(env,
       callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
-  msgbuilder.setThreadName(getThreadName()
-                          //getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, threadName,
-                          //           "java/lang/Thread", threadName, g_jvmti,
-                          //           g_lock)
-                        );
+  msgbuilder.setThreadName(getThreadName());
   anybuilder.setVarload(msgbuilder.asReader());
 
   capnp::writeMessageToFd(capnproto_fd, outermessage);
@@ -890,11 +903,11 @@ void handleModify(JNIEnv *env, jclass native_interface,
   ReadModifyEvt::Builder msgbuilder = innermessage.initRoot<ReadModifyEvt>();
   msgbuilder.setIsModify(true);
   msgbuilder.setCalleeclass(calleeClass);
-  msgbuilder.setCalleetag(getOrDoTag(
+  msgbuilder.setCalleetag(getOrDoTag(env,
       calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr()));
   msgbuilder.setFname(fname);
   msgbuilder.setCallerclass(callerClass);
-  msgbuilder.setCallertag(getOrDoTag(
+  msgbuilder.setCallertag(getOrDoTag(env,
       callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
   msgbuilder.setThreadName(getThreadName());
 
@@ -944,11 +957,11 @@ void handleRead(JNIEnv *env, jclass native_interface,
   ReadModifyEvt::Builder msgbuilder = innermessage.initRoot<ReadModifyEvt>();
   msgbuilder.setIsModify(false);
   msgbuilder.setCalleeclass(calleeClass);
-  msgbuilder.setCalleetag(getOrDoTag(
+  msgbuilder.setCalleetag(getOrDoTag(env,
       calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr()));
   msgbuilder.setFname(fname);
   msgbuilder.setCallerclass(callerClass);
-  msgbuilder.setCallertag(getOrDoTag(
+  msgbuilder.setCallertag(getOrDoTag(env,
       callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
   msgbuilder.setThreadName(getThreadName());
 
@@ -987,7 +1000,7 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
   capnp::MallocMessageBuilder innermessage;
   FieldLoadEvt::Builder msgbuilder = innermessage.initRoot<FieldLoadEvt>();
   msgbuilder.setHolderclass(holderClass);
-  msgbuilder.setHoldertag(getOrDoTag(
+  msgbuilder.setHoldertag(getOrDoTag(env,
       holderKind, holder, msgbuilder.asReader().getHolderclass().cStr()));
   msgbuilder.setFname(fname);
   msgbuilder.setType(type);
@@ -1183,7 +1196,7 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
         innermessage.initRoot<MethodEnterEvt>();
       msgbuilder.setName("<init>");
       msgbuilder.setSignature("(<unknown>)V");
-      msgbuilder.setCalleeclass(getTypeForTag(env, jni, *it));
+      msgbuilder.setCalleeclass(getTypeForTag(jni, *it));
       msgbuilder.setCalleetag(*it);
       msgbuilder.setCallsitefile("<jvmInternals>");
       msgbuilder.setCallsiteline(-1);
@@ -1198,7 +1211,7 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
   {
     // tag objects that have gotten a tag due to use of getOrDoTag
     for (auto it = irregularlyTagged.begin(); it != irregularlyTagged.end(); ++it) {
-      auto typ = getTypeForTag(g_jvmti, jni, *it);
+      auto typ = getTypeForTag(jni, *it);
       DBG("actual type for obj #"<<*it<<" is "<< typ);
       capnp::MallocMessageBuilder outermessage;
       AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();

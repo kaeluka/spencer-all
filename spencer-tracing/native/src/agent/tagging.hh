@@ -120,8 +120,8 @@ std::string toStdString(JNIEnv *env, jstring str);
 
 long doTag(jvmtiEnv *jvmti, jobject jobj);
 
-long getOrDoTag(jint objkind, jobject jobj, std::string klass, const std::string &thread,
-                jvmtiEnv *g_jvmti, jrawMonitorID g_lock);
+//long getOrDoTag(jint objkind, jobject jobj, std::string klass, const std::string &thread,
+//                jvmtiEnv *g_jvmti, jrawMonitorID g_lock);
 
 /*  std::string getThreadName(jvmtiEnv* g_jvmti, jrawMonitorID g_lock) {
   jthread thread;

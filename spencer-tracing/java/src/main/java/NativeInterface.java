@@ -5,7 +5,8 @@ public class NativeInterface {
   public static final int SPECIAL_VAL_STATIC = 2; //returned instead of oids when there is no object
   public static final int SPECIAL_VAL_NOT_IMPLEMENTED = 3;
   public static final int SPECIAL_VAL_JVM = 4; // the oid that represents the JVM "object" calling static void main(...)
-  public static final int SPECIAL_VAL_MAX = 5;
+  public static final int SPECIAL_VAL_NOT_INSTRUMENTED = 5; // the oid that represents the JVM "object" calling static void main(...)
+  public static final int SPECIAL_VAL_MAX = 100;
 
   ////////////////////////////////////////////////////////////////
 

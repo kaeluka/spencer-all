@@ -43,16 +43,16 @@ object DBLoader {
 
     val sc : SparkContext = startSpark()
 
-    new TraceFileIterator(new File("/tmp/tracefile"))
-      .foreach(
-        evt => {
-          if (evt.which() == AnyEvt.Which.METHODENTER) {
-            if (evt.getMethodenter.getCalleetag == 4) {
-              println(EventsUtil.messageToString(evt))
-            }
-          }
-        }
-      )
+//    new TraceFileIterator(new File("/tmp/tracefile"))
+//      .foreach(
+//        evt => {
+//          if (evt.which() == AnyEvt.Which.METHODENTER) {
+//            if (evt.getMethodenter.getCalleetag == 4) {
+//              println(EventsUtil.messageToString(evt))
+//            }
+//          }
+//        }
+//      )
 
     sc.stop()
 

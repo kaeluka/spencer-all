@@ -7,7 +7,8 @@ public class NativeInterface {
 	public static final int SPECIAL_VAL_STATIC = 2; //returned instead of oids when there is no object
 	public static final int SPECIAL_VAL_NOT_IMPLEMENTED = 3;
 	public static final int SPECIAL_VAL_JVM = 4; // the oid that represents the JVM "object" calling static void main(...)
-	public static final int SPECIAL_VAL_MAX = 5;
+	public static final int SPECIAL_VAL_NOT_INSTRUMENTED = 5;
+	public static final int SPECIAL_VAL_MAX = 100;
 
 	private static final HashMap<Integer, String> kindToNames;
 
@@ -18,6 +19,7 @@ public class NativeInterface {
 		kindToNames.put(SPECIAL_VAL_STATIC,          "STATIC");
 		kindToNames.put(SPECIAL_VAL_NOT_IMPLEMENTED, "NOT_IMPLEMENTED");
 		kindToNames.put(SPECIAL_VAL_JVM,             "JVM");
+		kindToNames.put(SPECIAL_VAL_JVM,             "NOT_INSTRUMENTED");
 		kindToNames.put(SPECIAL_VAL_MAX,             "SPECIAL_VAL_MAX");
 	}
 

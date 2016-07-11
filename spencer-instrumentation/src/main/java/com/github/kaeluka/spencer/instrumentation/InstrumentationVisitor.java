@@ -43,7 +43,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 	@Override
 	public void visit(int version, int access, String name, String signature,
 			String superName, String[] interfaces) {
-		this.classname = name;
+		this.classname = Type.getType(name).getInternalName().replace('.', '/');
 		super.visit(version, access, name, signature, superName, interfaces);
 	}
 
@@ -351,7 +351,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 		public InstrumentationMV(MethodVisitor mv, String _classDescr,
 				String name, int access, String signature) {
 			super(Opcodes.ASM5, mv, access, name, signature);
-			this.classDescr = _classDescr;
+			this.classDescr = Type.getType(_classDescr).getInternalName();
 			this.methodname = name;
 			this.signature = signature;
 		}
