@@ -23,6 +23,7 @@ object EventsUtil {
         "methodEnter -" +
           " callee=" + mthdEnter.getCalleeclass() + " @ " + mthdEnter.getCalleetag() +
           ", method=" + mthdEnter.getName() + mthdEnter.getSignature() +
+          ", callsite=" + mthdEnter.getCallsitefile + ":" + mthdEnter.getCallsiteline +
           ", thread=" + mthdEnter.getThreadName()
       case Events.AnyEvt.Which.METHODEXIT=>
         val mexit = evt.getMethodexit

@@ -40,9 +40,8 @@ extern DebugSummary summary;
 #else
 #define WARN(str)                                                              \
   {                                                                            \
-    summary.totalWarnings++;                                                   \
-    std::cout << __FILE__ << ":" << __LINE__ << ": WARN #"                     \
-              << summary.totalWarnings << ": " << str << std::endl;            \
+    std::cout << __FILE__ << ":" << __LINE__ << ": WARN "                      \
+              << ": " << str << std::endl;                                     \
   }
 #endif
 

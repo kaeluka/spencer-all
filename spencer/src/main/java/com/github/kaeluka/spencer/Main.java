@@ -162,7 +162,11 @@ public class Main {
         if (tracingNativePom == null) {
             throw new IllegalStateException("could not find pom.xml for spencer-tracing-osx project");
         }
-        final String tracingJni = tracingNativePom.replace("pom.xml", "target/spencer-tracing-osx.so");
+        //FIXME hard-coded path
+        final String tracingJni = new File(tracingNativePom).getParentFile().getAbsolutePath()+"/spencer-tracing-osx-0.1.3-SNAPSHOT.so";
+        if (!new File(tracingJni).exists()) {
+            throw new IllegalStateException("could not find agent binary: "+tracingJni);
+        }
 //        final File file = new File(tracingJni);
 //        if (!file.exists()) {
 //            throw new IllegalStateException("Could not find agent binary: "+file.getAbsolutePath() + " wtf");
@@ -176,7 +180,7 @@ public class Main {
         ProcessBuilder processBuilder = new ProcessBuilder(
                 argStrings);
 
-//        System.out.println("running command: "+processBuilder.command());
+        System.out.println("running command: "+processBuilder.command());
 
         processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
         processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);

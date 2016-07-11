@@ -75,36 +75,36 @@ bool isClassInstrumented(const std::string &className) {
   );
 }
 
-void markClassAsInstrumented(const std::string &className) {
-  DBG("marking "<<className<<" as instrumented");
-  instrumentedClasses.insert(className);
-  ASSERT(isClassInstrumented(className));
-}
+//void markClassAsInstrumented(const std::string &className) {
+//  DBG("marking "<<className<<" as instrumented");
+//  instrumentedClasses.insert(className);
+//  ASSERT(isClassInstrumented(className));
+//}
 
-void markClassFilesAsInstrumented(const std::string &directory, const std::string &package = "") {
-  DIR *dir;
-  struct dirent *ent;
-  if ((dir = opendir ((directory+"/"+package).c_str())) != NULL) {
-
-    while ((ent = readdir (dir)) != NULL) {
-      if (ent->d_name[0] != '.') {
-        std::string fileName = package+"/"+ent->d_name;
-        size_t appendixSize = std::string(".class").size();
-        if (fileName.size() >= appendixSize) {
-          auto stem = fileName.substr(1,fileName.size()-appendixSize-1);
-          auto extension = fileName.substr(fileName.size()-appendixSize, appendixSize);
-          if (extension == ".class") {
-            DBG("adding "<<stem<<" to instrumented class files");
-            markClassAsInstrumented(stem);
-            continue;
-          }
-        }
-        markClassFilesAsInstrumented(directory, package+"/"+ent->d_name);
-      }
-    }
-    closedir (dir);
-  }
-}
+//void markClassFilesAsInstrumented(const std::string &directory, const std::string &package = "") {
+//  DIR *dir;
+//  struct dirent *ent;
+//  if ((dir = opendir ((directory+"/"+package).c_str())) != NULL) {
+//
+//    while ((ent = readdir (dir)) != NULL) {
+//      if (ent->d_name[0] != '.') {
+//        std::string fileName = package+"/"+ent->d_name;
+//        size_t appendixSize = std::string(".class").size();
+//        if (fileName.size() >= appendixSize) {
+//          auto stem = fileName.substr(1,fileName.size()-appendixSize-1);
+//          auto extension = fileName.substr(fileName.size()-appendixSize, appendixSize);
+//          if (extension == ".class") {
+//            DBG("adding "<<stem<<" to instrumented class files");
+//            markClassAsInstrumented(stem);
+//            continue;
+//          }
+//        }
+//        markClassFilesAsInstrumented(directory, package+"/"+ent->d_name);
+//      }
+//    }
+//    closedir (dir);
+//  }
+//}
 
 void markClassAsUninstrumented(const std::string &className) {
   DBG("marking class "<<className<<" as uninstrumented");
@@ -280,12 +280,14 @@ void pushStackFrame(JNIEnv *env, const std::string &thread, jint callee_kind,
 long doTag(jvmtiEnv *g_jvmti, jobject jobj) {
   jlong tag;
   jvmtiError err;
+  ASSERT(jobj != NULL);
   err = g_jvmti->GetTag(jobj, &tag);
-  //ASSERT(tag == 0);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+  //  ASSERT(tag == 0);
   tag = nextObjID.fetch_add(1);
   err = g_jvmti->SetTag(jobj, tag);
-  //ASSERT_NO_JVMTI_ERR(g_jvmti, err);
-  //ASSERT(tag != 0);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+  ASSERT(tag != 0);
   // DBG("set tag " << tag << " on " << jobj);
   return tag;
 }

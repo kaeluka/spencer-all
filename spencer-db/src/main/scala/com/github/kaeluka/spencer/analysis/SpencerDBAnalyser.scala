@@ -18,13 +18,13 @@ trait SpencerDBAnalyser extends App {
       try {
         this.setUp(db)
       } catch {
-        case e => {
+        case e: Throwable => {
           println("setting up failed:")
           e.printStackTrace()
         }
       }
     } catch {
-      case e => {
+      case e: Throwable => {
         println("Anaylsis failed:")
         e.printStackTrace()
       }
@@ -32,7 +32,7 @@ trait SpencerDBAnalyser extends App {
     try {
       this.tearDown(db)
     } catch {
-      case e => {
+      case e: Throwable => {
         println("tearing down failed:")
         e.printStackTrace()
       }

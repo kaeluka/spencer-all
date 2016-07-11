@@ -2,6 +2,7 @@ package com.github.kaeluka.spencer
 
 import java.io.File
 
+import com.github.kaeluka.spencer.Events.AnyEvt
 import com.github.kaeluka.spencer.tracefiles.{EventsUtil, SpencerDB, TraceFileIterator}
 import com.google.common.base.Stopwatch
 import org.apache.spark
@@ -42,11 +43,16 @@ object DBLoader {
 
     val sc : SparkContext = startSpark()
 
-//    new TraceFileIterator(new File("/tmp/tracefile"))
-//      .take(30)
-//      .foreach(
-//        evt => println(EventsUtil.messageToString(evt))
-//      )
+    new TraceFileIterator(new File("/tmp/tracefile"))
+      .foreach(
+        evt => {
+          if (evt.which() == AnyEvt.Which.METHODENTER) {
+            if (evt.getMethodenter.getCalleetag == 4) {
+              println(EventsUtil.messageToString(evt))
+            }
+          }
+        }
+      )
 
     sc.stop()
 

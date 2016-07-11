@@ -117,6 +117,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 		// otherwise, we might log the old value on unitialised
 		// vars. The JVM doesn't want this.
 		AnalyzerAdapter analyzer;
+
 		private int lastVisitedLine = -1;
 		protected String getClassDescr() {
 			return this.classDescr;
@@ -204,33 +205,31 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 		}
 
 		protected void pushThisKindAndObj() {
-			boolean loud = this.getLastVisitedLocation().contains("StationaryFields.java");
-			if (loud) emitPrintln(this.getLastVisitedLocation());
+//            throw new RuntimeException("no locals in "+this.getClassDescr()+"::"+this.getMethodName());
 			if (this.analyzer.locals == null) {
 				//This code is unreachable
-				if (loud) emitPrintln("case locals == null");
 				if (this.isStatic()) {
 					super.visitLdcInsn(Instrument.SPECIAL_VAL_STATIC);
+                    super.visitInsn(ACONST_NULL);
 				} else {
-					if ("<init>".equals(this.getMethodName())) {
-						super.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
-					} else {
-						super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
-					}
+//					if ("<init>".equals(this.getMethodName())) {
+//						super.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
+//                      super.visitInsn(ACONST_NULL);
+//					} else {
+                    super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
+                    super.visitVarInsn(ALOAD, 0);
+//					}
 				}
-				super.visitInsn(ACONST_NULL);
+
 			} else
 				if (this.isStatic()) {
-				if (loud) emitPrintln("case static");
 				super.visitLdcInsn(Instrument.SPECIAL_VAL_STATIC);
 				super.visitInsn(ACONST_NULL);
 			} else if (getTypeOfLocal(0) == UNINITIALIZED_THIS) {
-				if (loud) emitPrintln("case uninit_this");
 				super.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
 				super.visitInsn(ACONST_NULL);
 			} else {
 				assert (!this.isStatic());
-				if (loud) emitPrintln("case other");
 				super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
 				super.visitVarInsn(ALOAD, 0);
 			}
@@ -246,7 +245,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 		/**
 		 * pushes the kind (SPECIAL_VAL_XXX) of the given var and then the value
 		 * (if needed)
-		 * 
+		 *
 		 * @param var
 		 *            the varible index
 		 */
@@ -268,29 +267,22 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 			final Object type = var < this.analyzer.locals.size() ? this.analyzer.locals.get(var) : ".";
 
 			if (type == UNINITIALIZED_THIS) {
-				comment("CASE uninit");
 				super.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
 				super.visitInsn(ACONST_NULL);
 				return;
 			} else if (type == Opcodes.NULL) {
-				comment("CASE null");
 				super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
 				super.visitInsn(ACONST_NULL);
 			} else if (type instanceof String && ((String) type).equals(".")) {
-				comment("CASE dot");
 				super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
 				super.visitInsn(ACONST_NULL);
 			} else {
-				comment("CASE normal var= " + var + ":" + type + ", locals="
-						+ this.analyzer.locals);
 				if ((type != INTEGER) && (type != FLOAT) && (type != DOUBLE)
 						&& (type != LONG) && (type != NULL)
 						&& (type != UNINITIALIZED_THIS) && (type != TOP)) {
-					comment("case 1");
 					super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
 					super.visitVarInsn(ALOAD, var);
 				} else {
-					comment("case 2");
 					if (type == TOP) {
 						// the value is unitialised! Emit NULL!
 						super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
@@ -374,7 +366,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 		@Override
 		public void visitInsn(int opcode) {
 			int valSize = 1;
-			
+
 			switch (opcode) {
 			case AASTORE:
 				emitStoreArrayA();
@@ -775,7 +767,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 					super.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
 					// STACK: .. ownerobj, newval, newval, null, newval, SPECIAL_VAL_THIS
 					super.dupX2();
-					// STACK: .. ownerobj, newval, newval, SPECIAL_VAL_THIS, null, newval, SPECIAL_VAL_THIS					
+					// STACK: .. ownerobj, newval, newval, SPECIAL_VAL_THIS, null, newval, SPECIAL_VAL_THIS
 					super.pop();
 					// STACK: .. ownerobj, newval, newval, SPECIAL_VAL_THIS, null, newval
 				}
@@ -902,7 +894,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 				super.visitLdcInsn(this.getClassDescr());
 				super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
 						"afterInitMethod",
-						"(Ljava/lang/Object;" 
+						"(Ljava/lang/Object;"
 								+ "Ljava/lang/String;"
 								+")V",
 								false);
@@ -942,7 +934,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 		private void pushReftypeArgs() {
 			final List<Type> params = Arrays.asList(Type.getArgumentTypes(this.getMethodSignature()));
 			comment("loading reftype args locals="+params);
-			
+
 			if (params == null) {
 				// this location is unreachable!
 				super.visitLdcInsn(0);
@@ -1015,21 +1007,23 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 					throw new IllegalArgumentException("don't understand primitive type operand "+operand);
 				}
 				super.visitInsn(DUP);
+				//FIXME: the type below should be arrayType, right?
 				super.visitLdcInsn("[Ljava/lang/Object;");
 				super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
 						"afterInitMethod",
-						"(Ljava/lang/Object;" 
+						"(Ljava/lang/Object;"
 								+ "Ljava/lang/String;"
 								+")V",
 								false);
 				super.visitLdcInsn("<init>");
 				super.visitLdcInsn("(I)V");
 				this.visitLdcInsn(arrayType);
+                //FIXME: SPECIAL_VAL_THIS and ACONST_NULL should go, right?
 				this.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
 				this.visitInsn(ACONST_NULL);
 				this.visitInsn(ACONST_NULL);
 				super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
-						"methodEnter", 
+						"methodEnter",
 						"(Ljava/lang/String;"    // name
 						+ "Ljava/lang/String;"   // signature
 						+ "Ljava/lang/String;"   // calleeclass
@@ -1050,7 +1044,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 				super.visitLdcInsn("[Ljava/lang/Object;");
 				super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
 						"afterInitMethod",
-						"(Ljava/lang/Object;" 
+						"(Ljava/lang/Object;"
 								+ "Ljava/lang/String;"
 								+")V",
 								false);
@@ -1065,7 +1059,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 				this.visitInsn(ACONST_NULL);
 				this.visitInsn(ACONST_NULL);
 				super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
-						"methodEnter", 
+						"methodEnter",
 						"(Ljava/lang/String;"    // name
 						+ "Ljava/lang/String;"   // signature
 						+ "Ljava/lang/String;"   // calleeclass
@@ -1184,7 +1178,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 
 		/**
 		 * Returns whether the `var` is the variable known as `this` in Java
-		 * 
+		 *
 		 * @param var
 		 *            the index of the variable in question
 		 * @return true if the variable is `this`, false otherwise
@@ -1192,5 +1186,5 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 		private boolean isThisVar(int var) {
 			return (!this.isStatic()) && var == 0;
 		}
-	}	
+	}
 }

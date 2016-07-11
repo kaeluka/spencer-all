@@ -10,11 +10,13 @@ struct TagObj {
 }
 
 struct MethodEnterEvt {
-  name        @0 :Text;
-  calleeclass @1 :Text;
-  calleetag   @2 :Int64;
-  signature   @3 :Text;
-  threadName  @4 :Text;
+  name         @0 :Text;
+  calleeclass  @1 :Text;
+  calleetag    @2 :Int64;
+  signature    @3 :Text;
+  threadName   @4 :Text;
+  callsitefile @5 :Text;
+  callsiteline @6 :Int64;
 }
 
 struct MethodExitEvt {

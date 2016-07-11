@@ -31,7 +31,10 @@ class SpencerDB(val keyspace: String) {
         case AnyEvt.Which.METHODENTER => {
           val menter = evt.getMethodenter
           if (menter.getName.toString == "<init>") {
-            insertObject(menter.getCalleetag, menter.getCalleeclass.toString, EventsUtil.messageToString(evt))
+//            if (menter.getCallsiteline != -1) {
+//              println("inserting: " + menter.getCalleetag)
+//            }
+            insertObject(menter.getCalleetag, menter.getCalleeclass.toString, menter.getCallsitefile.toString, menter.getCallsiteline, EventsUtil.messageToString(evt))
           }
         }
         case AnyEvt.Which.METHODEXIT => () //???
@@ -71,23 +74,23 @@ class SpencerDB(val keyspace: String) {
     }
   }
 
-  def insertObject(tag: Long, klass: String, comment: String = "none") {
-    if (! session.execute("SELECT id FROM "+this.keyspace+".objects WHERE id = "+tag).isExhausted) {
-      throw new IllegalStateException("already have object #"+tag);
-    }
+  def insertObject(tag: Long, klass: String, allocationSiteFile: String, allocationSiteLine: Long, comment: String = "none") {
+//    if (! session.execute("SELECT id FROM "+this.keyspace+".objects WHERE id = "+tag).isExhausted) {
+//      throw new IllegalStateException("already have object #"+tag);
+//    }
     //      session.executeAsync("INSERT INTO objects(id, klass, comment) VALUES("
     //        + tag + ", '"
     //        + klass + "', '"
     //        + comment + "');")
-
     session.executeAsync(this.insertObjectStatement.bind(
       tag : java.lang.Long,
       klass,
+      allocationSiteFile,
+      allocationSiteLine : java.lang.Long,
       comment))
   }
 
   def insertEdge(caller: Long, callee: Long, kind: String, start: Long, comment: String = "none") {
-
     session.executeAsync(this.insertEdgeStatement.bind(
       caller : java.lang.Long,
       callee : java.lang.Long,
@@ -98,7 +101,6 @@ class SpencerDB(val keyspace: String) {
   }
 
   def insertUse(caller: Long, callee: Long, kind: String, idx: Long, comment: String = "none") {
-
     session.executeAsync(this.insertUseStatement.bind(
       caller : java.lang.Long,
       callee : java.lang.Long,
@@ -166,8 +168,10 @@ class SpencerDB(val keyspace: String) {
     session.execute("CREATE TABLE "+keyspace+".objects(" +
       "id bigint, " +
       "klass text, " +
+      "allocationSiteFile text, " +
+      "allocationSiteLine bigint, " +
       "comment text, " +
-      "PRIMARY KEY(id));")
+      "PRIMARY KEY(id, klass)) ;")
 
     session.execute("CREATE TABLE "+keyspace+".refs(" +
       "caller bigint, callee bigint, " +
@@ -184,7 +188,7 @@ class SpencerDB(val keyspace: String) {
     session.close()
     this.session = cluster.connect(keyspace)
 
-    this.insertObjectStatement = this.session.prepare("INSERT INTO objects(id, klass, comment) VALUES(?, ?, ?);")
+    this.insertObjectStatement = this.session.prepare("INSERT INTO objects(id, klass, allocationSiteFile, allocationSiteLine, comment) VALUES(?, ?, ?, ?, ?);")
     this.insertEdgeStatement   = this.session.prepare("INSERT INTO "+this.keyspace+".refs(caller, callee, kind, start, end, comment) VALUES(?, ?, ?, ?, ?, ?);")
     this.insertUseStatement    = this.session.prepare("INSERT INTO "+this.keyspace+".uses(caller, callee, kind, idx, comment) VALUES(?, ?, ?, ?, ?);")
   }

@@ -78,15 +78,16 @@ string kindToStr(jint v) {
 static jrawMonitorID g_lock;
 
 std::string getThreadName() {
-  jvmtiThreadInfo info;
-  jvmtiError err = g_jvmti->GetThreadInfo(NULL, &info);
-  if (err == JVMTI_ERROR_WRONG_PHASE) {
-    return "SOME_JVM_THREAD";
-  } else {
-    std::string ret(info.name);
-    g_jvmti->Deallocate((unsigned char*)info.name);
-    return ret;
-  }
+  return "a thread";
+  //  jvmtiThreadInfo info;
+  //  jvmtiError err = g_jvmti->GetThreadInfo(NULL, &info);
+  //  if (err == JVMTI_ERROR_WRONG_PHASE) {
+  //    return "SOME_JVM_THREAD";
+  //  } else {
+  //    std::string ret(info.name);
+  //    g_jvmti->Deallocate((unsigned char*)info.name);
+  //    return ret;
+  //  }
 }
 
 void doFramePop(std::string mname) {
@@ -403,7 +404,8 @@ std::string getTypeForObj(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jobject obj) {
 
   jclass klass = jni_env->GetObjectClass(obj);
   jstring name = (jstring)jni_env->CallObjectMethod(klass, getName);
-  ASSERT(name != NULL);
+  //ASSERT(name != NULL);
+
   return toStdString(jni_env, name);
 }
 
@@ -460,7 +462,7 @@ long getTag(jint objkind, jobject jobj, std::string klass) {
   case NativeInterface_SPECIAL_VAL_NORMAL: {
     if (jobj) {
       jvmtiError err = g_jvmti->GetTag(jobj, &tag);
-      DBG("getting tag (" << klass << " @ " << tag << ") from JVMTI");
+      //DBG("getting tag (" << klass << " @ " << tag << ") from JVMTI");
       ASSERT_NO_JVMTI_ERR(g_jvmti, err);
       }
     }
@@ -468,14 +470,15 @@ long getTag(jint objkind, jobject jobj, std::string klass) {
    case NativeInterface_SPECIAL_VAL_THIS: {
      jobject obj = getThis();
      if (obj == NULL) {
-       return NativeInterface_SPECIAL_VAL_JVM;
+       WARN("wat "<<klass); //continue here!
+       return NativeInterface_SPECIAL_VAL_JVM; //this is emitted too often
      } else {
        return getTag(NativeInterface_SPECIAL_VAL_NORMAL, obj, klass);
      }
   }
   case NativeInterface_SPECIAL_VAL_STATIC: {
     tag = getClassRepTag(klass);
-    DBG("getting tag (" << klass << " @ " << tag << ") from classRep");
+    //DBG("getting tag (" << klass << " @ " << tag << ") from classRep");
     break;
   }
   case NativeInterface_SPECIAL_VAL_NOT_IMPLEMENTED: {
@@ -516,6 +519,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
   std::string threadName = getThreadName();
   std::string calleeClassStr;
+  std::string nameStr = toStdString(env, name);
   if (callee == NULL && calleeKind == NativeInterface_SPECIAL_VAL_NORMAL) {
     //happens early in bootstrapping!
     calleeClassStr = "<: "+toStdString(env, calleeClass);
@@ -523,7 +527,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
     calleeClassStr = getTypeForObjKind(g_jvmti, env, callee, calleeKind, calleeClass);
   }
   DBG("Java_NativeInterface_methodEnter: "<<calleeClassStr
-                                          <<"::" << toStdString(env, name)
+                                          <<"::" << nameStr
                                           <<", thd:"<<threadName);
   //  pushStackFrame(env, threadName, calleeKind, callee, name, calleeClass, g_jvmti,
   //                 g_lock);
@@ -538,17 +542,72 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
   }
   //handleValStatic(env, &calleeKind, &callee, calleeClass);
   DBG("callee tag = " << calleeTag);
-  DBG("thread tag = " << threadName);
+  DBG("thread nam = " << threadName);
   {
     capnp::MallocMessageBuilder outermessage;
     AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
     capnp::MallocMessageBuilder innermessage;
     MethodEnterEvt::Builder msgbuilder =
         innermessage.initRoot<MethodEnterEvt>();
-    msgbuilder.setName(toStdString(env, name));
+    msgbuilder.setName(nameStr);
     msgbuilder.setSignature(toStdString(env, signature));
     msgbuilder.setCalleeclass(toStdString(env, calleeClass));
     msgbuilder.setCalleetag(calleeTag);
+
+    if ((*nameStr.c_str() == '<') && isInLivePhase()) {
+      jmethodID callingMethod;
+      jlocation callsite;
+
+      /*
+        jvmtiError
+        GetFrameLocation(jvmtiEnv* env,
+                         jthread thread,
+                         jint depth,
+                         jmethodID* method_ptr,
+                         jlocation* location_ptr)
+       */
+      jvmtiError err = g_jvmti->GetFrameLocation(NULL, //use current thread
+                                                 1,    //get the frame above
+                                                 &callingMethod,
+                                                 &callsite);
+      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+
+      jvmtiLineNumberEntry *lineNumbers;
+
+      jint lineNumberEntryCount;
+      err = g_jvmti->GetLineNumberTable(callingMethod, &lineNumberEntryCount, &lineNumbers);
+      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+
+      jint lineNumber = -1;
+      for (int i=0; i<lineNumberEntryCount; ++i) {
+        // DBG("is it "<<lineNumbers[i].start_location<<"?");
+        if (lineNumbers[i].start_location > callsite) {
+          // DBG("it is!");
+          break;
+        } else {
+          lineNumber = lineNumbers[i].line_number;
+        }
+      }
+
+      g_jvmti->Deallocate((unsigned char*)lineNumbers);
+
+      jclass declaring_class;
+      err = g_jvmti->GetMethodDeclaringClass(callingMethod, &declaring_class);
+      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+      char *callsitefile;
+      err = g_jvmti->GetSourceFileName(declaring_class, &callsitefile);
+      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+
+      //std::string callsitefile = "TODO FILE";
+
+      msgbuilder.setCallsitefile(callsitefile);
+      g_jvmti->Deallocate((unsigned char*)callsitefile);
+      msgbuilder.setCallsiteline(lineNumber);
+    } else {
+      msgbuilder.setCallsitefile("<not instrumented>");
+      msgbuilder.setCallsiteline(-1);
+    }
+
     msgbuilder.setThreadName(threadName);
     anybuilder.setMethodenter(msgbuilder.asReader());
 
@@ -557,7 +616,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
 
   {
     if (args != NULL) {
-      DBG("emitting args "<<toStdString(env, calleeClass)<<"::"<<toStdString(env, name));
+      DBG("emitting args "<<toStdString(env, calleeClass)<<"::"<<nameStr);
       const jsize N_ARGS = env->GetArrayLength((jarray)args);
       //  std::cout << "N_ARGS=" << N_ARGS << "\n";
       for (jsize i = 0; i < N_ARGS; ++i) {
@@ -576,7 +635,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
         msgbuilder.setNewval(getOrDoTag(NativeInterface_SPECIAL_VAL_NORMAL, arg, "java/lang/Object"));
           msgbuilder.setOldval((int64_t)0);
           msgbuilder.setVar(i);
-          msgbuilder.setCallermethod(toStdString(env, name));
+          msgbuilder.setCallermethod(nameStr);
           // the callee of the call is the caller of the the var store:
           msgbuilder.setCallerclass(calleeClassStr);
           msgbuilder.setCallertag(calleeTag);
@@ -588,18 +647,19 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
         }
         DBG("emitting args done");
       }
-} //*/
+  } //*/
+
 #endif // ifdef ENABLED
 }
 
 bool tagFreshlyInitialisedObject(jobject callee,
                                  std::string threadName) {
   DBG("tagFreshlyInitialisedObject(..., threadName = " << threadName << ")");
+  ASSERT(g_jvmti);
+  ASSERT(callee);
   if (getTag(NativeInterface_SPECIAL_VAL_NORMAL, callee, "class/unknown") != 0) {
     return false;
   }
-  ASSERT(g_jvmti);
-  ASSERT(callee);
 
   jlong tag;
   DBG("thread " << threadName << ": don't have an object ID");
@@ -616,17 +676,20 @@ Java_NativeInterface_afterInitMethod(JNIEnv *env, jclass native_interface,
                                      jobject callee, jstring calleeClass) {
 #ifdef ENABLED
   LOCK;
-  DBG("afterInitMethod");
   std::string calleeClassStr = toStdString(env, calleeClass);
   std::string threadName = getThreadName();
-  DBG("afterInitMethod(..., callee="<<callee<<", calleeClass=" << calleeClass << ")");
+  DBG("afterInitMethod(..., callee="<<callee<<", calleeClass=" << calleeClassStr << ")");
+  tagFreshlyInitialisedObject(callee, threadName);
+  //  if (getTag(NativeInterface_SPECIAL_VAL_NORMAL, callee, calleeClassStr) == 0) {
+  //    DBG("tagging with "<<doTag(g_jvmti, callee));
+  //  }
 
-  if (calleeClassStr == "ClassRep" || isClassInstrumented(calleeClassStr)) {
-    DBG("class "<<calleeClass<<" is instrumented");
-    tagFreshlyInitialisedObject(callee, getThreadName());
-  } else {
-    DBG("class "<<calleeClass<<" is not instrumented");
-  }
+  //  if (calleeClassStr == "ClassRep" || isClassInstrumented(calleeClassStr)) {
+  //    DBG("class "<<calleeClass<<" is instrumented");
+  //    tagFreshlyInitialisedObject(callee, getThreadName());
+  //  } else {
+  //    DBG("class "<<calleeClass<<" is not instrumented");
+  //  }
 #endif // ifdef ENABLED
 }
 
@@ -826,22 +889,15 @@ void handleModify(JNIEnv *env, jclass native_interface,
   capnp::MallocMessageBuilder innermessage;
   ReadModifyEvt::Builder msgbuilder = innermessage.initRoot<ReadModifyEvt>();
   msgbuilder.setIsModify(true);
-  DBG("...");
   msgbuilder.setCalleeclass(calleeClass);
-  DBG("...");
   msgbuilder.setCalleetag(getOrDoTag(
       calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr()));
-      DBG("...");
   msgbuilder.setFname(fname);
-  DBG("...");
   msgbuilder.setCallerclass(callerClass);
-  DBG("...");
   msgbuilder.setCallertag(getOrDoTag(
       callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
-      DBG("...");
   msgbuilder.setThreadName(getThreadName());
 
-                          DBG("...");
   anybuilder.setReadmodify(msgbuilder.asReader());
 
   capnp::writeMessageToFd(capnproto_fd, outermessage);
@@ -930,31 +986,20 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
   capnp::MallocMessageBuilder innermessage;
   FieldLoadEvt::Builder msgbuilder = innermessage.initRoot<FieldLoadEvt>();
-  DBG("blip")
   msgbuilder.setHolderclass(holderClass);
-  DBG("blip")
   msgbuilder.setHoldertag(getOrDoTag(
       holderKind, holder, msgbuilder.asReader().getHolderclass().cStr()));
-      DBG("blip")
   msgbuilder.setFname(fname);
-  DBG("blip")
   msgbuilder.setType(type);
-  DBG("blip")
   msgbuilder.setVal(getTag(NativeInterface_SPECIAL_VAL_NORMAL, val,
                            msgbuilder.asReader().getType().cStr()));
-                           DBG("blip")
   msgbuilder.setCallermethod(callerMethod);
-  DBG("blip")
   msgbuilder.setCallerclass(callerClass);
-  DBG("blip")
   msgbuilder.setCallertag(getTag(
       callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
-      DBG("blip")
   msgbuilder.setThreadName(getThreadName());
-  DBG("blip")
 
   anybuilder.setFieldload(msgbuilder.asReader());
-  DBG("blip")
 
   capnp::writeMessageToFd(capnproto_fd, outermessage);
   DBG("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
@@ -1036,7 +1081,7 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
 
   if (class_being_redefined != NULL) {
     //this is a call from RedefineClass. The class has been transformed already;
-    DODBG("class "<<name<<" has been redefined -- len="<<class_data_len);
+    DBG("class "<<name<<" has been redefined -- len="<<class_data_len);
     return;
   }
 
@@ -1052,7 +1097,7 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
       auto res = std::mismatch(it->begin(), it->end(), name.begin());
 
       if (res.first == it->end()) {
-        DODBG("postponing transformation of class "<<name<<" -- len="<<class_data_len);
+        DBG("postponing transformation of class "<<name<<" -- len="<<class_data_len<< ", due to match with "<<*it);
         // match string is a prefix of class name
         SpencerClassRedefinition redef;
         redef.name = name;
@@ -1078,6 +1123,7 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
   DBG("instrumenting class " << name);
   transformClass(class_data, class_data_len, new_class_data, (uint32_t*)new_class_data_len);
   int minLen = *new_class_data_len < class_data_len ? *new_class_data_len : class_data_len;
+  /*
   if ((class_data_len != *new_class_data_len) ||
       (memcmp(class_data, *new_class_data, minLen) != 0)) {
     DBG("class "<<name<<" is instrumented: got changed class back");
@@ -1086,8 +1132,8 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
     DBG("class "<<name<<" is not instrumented: got unchanged class back");
     //FIXME we have to count these too! if it's in xbootclasspath, it should be marked as instrumented,
     // otherwise not
-
   }
+  */
 
   // unsigned char **new_class_data_ignore;
   // recvClass(sock, new_class_data_ignore);
@@ -1139,6 +1185,8 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
       msgbuilder.setSignature("(<unknown>)V");
       msgbuilder.setCalleeclass(getTypeForTag(env, jni, *it));
       msgbuilder.setCalleetag(*it);
+      msgbuilder.setCallsitefile("<jvmInternals>");
+      msgbuilder.setCallsiteline(-1);
       msgbuilder.setThreadName("JVM_Thread<?>");
 
       anybuilder.setMethodenter(msgbuilder.asReader());
@@ -1161,6 +1209,8 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
       msgbuilder.setSignature("(<unknown>)V");
       msgbuilder.setCalleeclass(typ);
       msgbuilder.setCalleetag(*it);
+      msgbuilder.setCallsitefile("<jvmInternals>");
+      msgbuilder.setCallsiteline(-1);
       msgbuilder.setThreadName("JVM_Thread<?>");
 
       anybuilder.setMethodenter(msgbuilder.asReader());
@@ -1173,6 +1223,11 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
     // redefine classes that we could not transform during the primordial
     // phase:
     for (auto redef = redefineDuringLivePhase.begin(); redef != redefineDuringLivePhase.end(); ++redef) {
+      if (redef->name == "java/lang/SystemClassLoaderAction" ||
+          redef->name == "java/lang/Class"
+          ) {
+        break;
+      }
       DBG("redefining klass "<<redef->name);
       unsigned char *new_class_data;
       uint32_t new_class_data_len;
@@ -1183,7 +1238,10 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
       redef->klassDef.klass = jni->FindClass(redef->name.c_str());
       DBG("redefining class "<<redef->name<<" -- len="<<redef->klassDef.class_byte_count);
       jvmtiError err = g_jvmti->RedefineClasses(1, &redef->klassDef);
-      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+      if (err == JVMTI_ERROR_INVALID_CLASS) {
+        WARN("could not redefine class "<<redef->name);
+        ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+      }
     }
   }
 
@@ -1235,34 +1293,35 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   DBG("Agent_OnLoad");
 
   {
-    onlyDuringLivePhaseMatch.push_back("java/lang/Object");
+    onlyDuringLivePhaseMatch.push_back("java/io/File");
+    onlyDuringLivePhaseMatch.push_back("java/io/FileOutputStream");
+    onlyDuringLivePhaseMatch.push_back("java/io/PrintStream");
     onlyDuringLivePhaseMatch.push_back("java/lang/Class");
     onlyDuringLivePhaseMatch.push_back("java/lang/ClassLoader");
+    onlyDuringLivePhaseMatch.push_back("java/lang/Float");
+    onlyDuringLivePhaseMatch.push_back("java/lang/Object");
+    onlyDuringLivePhaseMatch.push_back("java/lang/Shutdown");
+    onlyDuringLivePhaseMatch.push_back("java/lang/String");
+    onlyDuringLivePhaseMatch.push_back("java/lang/System");
     onlyDuringLivePhaseMatch.push_back("java/lang/Thread");
+    onlyDuringLivePhaseMatch.push_back("java/lang/ref");
     onlyDuringLivePhaseMatch.push_back("java/security/AccessControlContext");
     onlyDuringLivePhaseMatch.push_back("java/util/AbstractCollection");
     onlyDuringLivePhaseMatch.push_back("java/util/AbstractList");
     onlyDuringLivePhaseMatch.push_back("java/util/HashMap");
-    onlyDuringLivePhaseMatch.push_back("java/util/Vector");
-    onlyDuringLivePhaseMatch.push_back("java/util/LinkedList$ListItr");
-    onlyDuringLivePhaseMatch.push_back("java/lang/Shutdown");
-    onlyDuringLivePhaseMatch.push_back("java/lang/System");
-    onlyDuringLivePhaseMatch.push_back("java/lang/String");
-    onlyDuringLivePhaseMatch.push_back("java/lang/Float");
-    onlyDuringLivePhaseMatch.push_back("java/lang/ref");
-    onlyDuringLivePhaseMatch.push_back("sun/nio/cs");
-    onlyDuringLivePhaseMatch.push_back("java/io/File");
-    onlyDuringLivePhaseMatch.push_back("java/io/FileOutputStream");
-    onlyDuringLivePhaseMatch.push_back("java/io/PrintStream");
     onlyDuringLivePhaseMatch.push_back("java/util/Hashtable");
-    onlyDuringLivePhaseMatch.push_back("sun/util/PreHashedMap");
+    onlyDuringLivePhaseMatch.push_back("java/util/LinkedList$ListItr");
+    onlyDuringLivePhaseMatch.push_back("java/util/Locale/");
+    onlyDuringLivePhaseMatch.push_back("java/util/Vector");
     onlyDuringLivePhaseMatch.push_back("sun/launcher/");
+    onlyDuringLivePhaseMatch.push_back("sun/nio/cs");
+    onlyDuringLivePhaseMatch.push_back("sun/util/PreHashedMap");
   }
 
   jvmtiError error;
   jint res;
 
-  markClassFilesAsInstrumented("../transformer/instrumented_java_rt/output");
+  //  markClassFilesAsInstrumented("../transformer/instrumented_java_rt/output");
 
   if (options != NULL) {
     parse_options(options);
@@ -1293,6 +1352,8 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   capabilities.can_generate_exception_events = 1;
   capabilities.can_redefine_classes = 1;
   capabilities.can_redefine_any_class = 1;
+  capabilities.can_get_line_numbers = 1;
+  capabilities.can_get_source_file_name = 1;
   error = g_jvmti->AddCapabilities(&capabilities);
   ASSERT_NO_JVMTI_ERR(g_jvmti, error);
 
@@ -1355,7 +1416,7 @@ JNIEXPORT void JNICALL Agent_OnUnload(JavaVM *vm) {
     //  int cnt = 0;
     //  for (auto it = uninstrumentedClasses.begin();
     //       it != uninstrumentedClasses.end(); ++it) {
-    //     DODBG("uninstrumented "<<++cnt<<"/"<<uninstrumentedClasses.size()
+    //     DBG("uninstrumented "<<++cnt<<"/"<<uninstrumentedClasses.size()
     //                       <<": class "<<*it);
     //  }
     DBG("instrumented "<<instrumentedClasses.size()<<" classes, skipped "<<uninstrumentedClasses.size());
