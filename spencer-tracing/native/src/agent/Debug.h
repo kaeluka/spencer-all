@@ -37,7 +37,7 @@ extern DebugSummary summary;
 #define WARN(str)                                                              \
   {                                                                            \
     std::cout << __FILE__ << ":" << __LINE__ << ": WARN "                      \
-              << ": " << str << std::endl;                                     \
+              << str << std::endl;                                             \
   }
 
 #define ASSERT(exp) {if (!(exp)) { ERR("assertion failed!"); }}

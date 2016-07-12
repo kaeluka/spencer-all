@@ -116,6 +116,7 @@
 
         </plugins>
     </build>
+
     <packaging>jar</packaging>
 
     <dependencies>

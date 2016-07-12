@@ -364,20 +364,6 @@ jlong getClassRepTag(const std::string &className) {
 //  return tag;
 //}
 
-/*
-  returns a c++ string with content copied from a java str
-*/
-std::string toStdString(JNIEnv *env, jstring str) {
-  // BUG: if I comment stuff below back in: crashes!
-  if (str == NULL) {
-    return "NULL";
-  }
-  const char *c_str = env->GetStringUTFChars(str, NULL);
-  const std::string result(c_str);
-  env->ReleaseStringUTFChars(str, c_str);
-  return result;
-}
-
 /**
 
 If the object kind is SPECIAL_VAL_STATIC, replace the reference by a
