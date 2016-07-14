@@ -53,7 +53,7 @@ public:
   //  return this->frames.back();
   //}
 
-  inline const frame &peekFrame(int depth = 0) const {
+  inline const frame &peekFrame(unsigned int depth = 0) const {
     auto size = this->hasFrames();
     ASSERT(size >= depth && "can't peek that deep into stack");
     const auto &ret = this->frames.at(size-depth-1);
@@ -61,8 +61,8 @@ public:
   }
 
 
-  inline int hasFrames() const {
-    return this->frames.size();
+  inline unsigned int hasFrames() const {
+    return (unsigned int)this->frames.size();
   }
 };
 

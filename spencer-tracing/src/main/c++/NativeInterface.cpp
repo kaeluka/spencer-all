@@ -1,6 +1,5 @@
 #define ENABLED
 
-//#define NODEBUG
 #include "Debug.h"
 
 #include "NativeInterface.h"
@@ -90,6 +89,12 @@ std::string getThreadName() {
   //  }
 }
 
+std::string toCanonicalForm(std::string typ) {
+  std::string ret = typ;
+  std::replace(ret.begin(), ret.end(), '/', '.');
+  return ret;
+}
+
 void doFramePop(std::string mname) {
   std::string threadName = getThreadName();
   capnp::MallocMessageBuilder outermessage;
@@ -150,7 +155,7 @@ int setupSocket() {
 
 void closeSocket(int sock) { close(sock); }
 
-uint32_t recvClass(int sock, unsigned char **data) {
+size_t recvClass(int sock, unsigned char **data) {
   DBG("receiving class");
   union {
     long i;
@@ -162,9 +167,9 @@ uint32_t recvClass(int sock, unsigned char **data) {
     ERR("could not receive");
   }
 
-  long len = 0;
+  size_t len = 0;
   for (int i = 0; i <= 7; ++i) {
-    len += (x.bs[i] << (8 * (7 - i)));
+    len += (size_t)(x.bs[i] << (8 * (7 - i)));
   }
 
   DBG("received length " << len);
@@ -174,7 +179,7 @@ uint32_t recvClass(int sock, unsigned char **data) {
   DBG("rlen=" << rlen);
   ASSERT(rlen == len);
   closeSocket(sock);
-  return rlen;
+  return (size_t)rlen;
 }
 
 void sendClass(int sock, const unsigned char *data, uint32_t len) {
@@ -413,7 +418,7 @@ std::string getToString(JNIEnv *jni_env, jobject obj) {
 
 std::string getTypeForObj(JNIEnv *jni_env, jobject obj) {
   jclass klassKlass = jni_env->FindClass("java/lang/Class");
-  jmethodID getName = jni_env->GetMethodID(klassKlass, "getCanonicalName", "()Ljava/lang/String;");
+  jmethodID getName = jni_env->GetMethodID(klassKlass, "getName", "()Ljava/lang/String;");
   ASSERT(getName != NULL);
 
   jclass klass = jni_env->GetObjectClass(obj);
@@ -421,7 +426,11 @@ std::string getTypeForObj(JNIEnv *jni_env, jobject obj) {
   //ASSERT(name != NULL);
 
   jvmtiError err = g_jvmti->SetTag(name, NativeInterface_SPECIAL_VAL_NOT_INSTRUMENTED);
-  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+  if (err == JVMTI_ERROR_INVALID_OBJECT) {
+    WARN("got JVMTI_ERROR_INVALID_OBJECT");
+  } else {
+    ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+  }
 
   std::string nameStr = toStdString(jni_env, name);
 
@@ -447,7 +456,7 @@ std::string getTypeForObjKind(jvmtiEnv *jvmti_env, JNIEnv *jni_env, jobject obj,
     }
   }
   case NativeInterface_SPECIAL_VAL_STATIC: {
-    return toStdString(jni_env, definitionKlass);
+    return toCanonicalForm(toStdString(jni_env, definitionKlass));
   }
   default:
     ERR("Can't handle kind "<<kind);
@@ -489,7 +498,7 @@ long getTag(jint objkind, jobject jobj, std::string klass) {
    case NativeInterface_SPECIAL_VAL_THIS: {
      jobject obj = getThis();
      if (obj == NULL) {
-       WARN("wat "<<klass); //continue here!
+       //       WARN("wat "<<klass); //continue here!
        return NativeInterface_SPECIAL_VAL_JVM; //this is emitted too often
      } else {
        return getTag(NativeInterface_SPECIAL_VAL_NORMAL, obj, klass);
@@ -519,8 +528,8 @@ long getOrDoTag(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
     tag = doTag(g_jvmti, jobj);
     if (isInLivePhase()) {
       LOCK;
-      WARN("irregularly tagged object #"<<tag<<" : "//<<getTypeForTag(jni, tag)
-           <<" (as string: "<<getToString(jni, jobj)<<") in live phase");
+      //      WARN("irregularly tagged object #"<<tag<<" : "//<<getTypeForTag(jni, tag)
+      //           <<" (as string: "<<getToString(jni, jobj)<<") in live phase");
     } else {
       irregularlyTagged.push_back(tag);
     }
@@ -597,33 +606,38 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
 
       jint lineNumberEntryCount;
       err = g_jvmti->GetLineNumberTable(callingMethod, &lineNumberEntryCount, &lineNumbers);
-      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
-
-      jint lineNumber = -1;
-      for (int i=0; i<lineNumberEntryCount; ++i) {
-        // DBG("is it "<<lineNumbers[i].start_location<<"?");
-        if (lineNumbers[i].start_location > callsite) {
-          // DBG("it is!");
-          break;
-        } else {
-          lineNumber = lineNumbers[i].line_number;
+      if (err != JVMTI_ERROR_ABSENT_INFORMATION) {
+        ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+        jint lineNumber = -1;
+        for (int i=0; i<lineNumberEntryCount; ++i) {
+          // DBG("is it "<<lineNumbers[i].start_location<<"?");
+          if (lineNumbers[i].start_location > callsite) {
+            // DBG("it is!");
+            break;
+          } else {
+            lineNumber = lineNumbers[i].line_number;
+          }
         }
+
+        g_jvmti->Deallocate((unsigned char*)lineNumbers);
+
+        jclass declaring_class;
+        err = g_jvmti->GetMethodDeclaringClass(callingMethod, &declaring_class);
+        ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+        char *callsitefile;
+        err = g_jvmti->GetSourceFileName(declaring_class, &callsitefile);
+        ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+
+        //std::string callsitefile = "TODO FILE";
+        msgbuilder.setCallsitefile(callsitefile);
+        g_jvmti->Deallocate((unsigned char*)callsitefile);
+        msgbuilder.setCallsiteline(lineNumber);
+
+      } else {
+        msgbuilder.setCallsitefile("<absent information>");
+        msgbuilder.setCallsiteline(-1);
       }
 
-      g_jvmti->Deallocate((unsigned char*)lineNumbers);
-
-      jclass declaring_class;
-      err = g_jvmti->GetMethodDeclaringClass(callingMethod, &declaring_class);
-      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
-      char *callsitefile;
-      err = g_jvmti->GetSourceFileName(declaring_class, &callsitefile);
-      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
-
-      //std::string callsitefile = "TODO FILE";
-
-      msgbuilder.setCallsitefile(callsitefile);
-      g_jvmti->Deallocate((unsigned char*)callsitefile);
-      msgbuilder.setCallsiteline(lineNumber);
     } else {
       msgbuilder.setCallsitefile("<not instrumented>");
       msgbuilder.setCallsiteline(-1);
@@ -669,7 +683,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
         DBG("emitting args done");
       }
   } //*/
-
+  DBG("methodEnter done");
 #endif // ifdef ENABLED
 }
 
@@ -711,6 +725,7 @@ Java_NativeInterface_afterInitMethod(JNIEnv *env, jclass native_interface,
   //  } else {
   //    DBG("class "<<calleeClass<<" is not instrumented");
   //  }
+  DBG("afterInitMethod done")
 #endif // ifdef ENABLED
 }
 
@@ -720,7 +735,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_newObj(JNIEnv *, jclass, jobject,
 #ifdef ENABLED
 // LOCK;
   ERR("newObj not implemented");
-#endif
+#endif // ifdef ENABLED
 }
 
 
@@ -1135,21 +1150,18 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
 
   DBG("instrumenting class " << name);
   transformClass(class_data, class_data_len, new_class_data, (uint32_t*)new_class_data_len);
+
   int minLen = *new_class_data_len < class_data_len ? *new_class_data_len : class_data_len;
-  /*
   if ((class_data_len != *new_class_data_len) ||
       (memcmp(class_data, *new_class_data, minLen) != 0)) {
     DBG("class "<<name<<" is instrumented: got changed class back");
-    markClassAsInstrumented(name);
   } else {
     DBG("class "<<name<<" is not instrumented: got unchanged class back");
-    //FIXME we have to count these too! if it's in xbootclasspath, it should be marked as instrumented,
-    // otherwise not
   }
-  */
 
   // unsigned char **new_class_data_ignore;
   // recvClass(sock, new_class_data_ignore);
+  //  */
   DBG("done");
 #endif // ifdef ENABLED
 }
@@ -1341,7 +1353,6 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   }
   // cerr << "agent started\n";
   // Get jvmti env
-  std::cout << "opening "<<tracefilename.c_str()<<"\n";
   capnproto_fd = open(tracefilename.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
                       S_IRUSR | S_IWUSR);
   if (capnproto_fd == -1) {
@@ -1404,11 +1415,13 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
     error = g_jvmti->AddToBootstrapClassLoaderSearch("./");
     ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
     //FIXME hard coded path:
-    error = g_jvmti->AddToBootstrapClassLoaderSearch("/Users/stebr742/.m2/repository/com/github/kaeluka/spencer-tracing-jni/0.1.3-SNAPSHOT/");
+    error = g_jvmti->AddToBootstrapClassLoaderSearch("/Users/stebr742/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/spencer-tracing-0.1.3-SNAPSHOT-events.jar");
+    error = g_jvmti->AddToBootstrapClassLoaderSearch("/Users/stebr742/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/");
     ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
   }
 
   DBG("extending bootstrap classloader search: done");
+
   return JNI_OK;
 }
 

@@ -11,19 +11,19 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object DBLoader {
 
-  def getGraph(sc: SparkContext): Graph[(String, String), String] = {
-    val vtx = sc.parallelize(Array(
-      (3L, ("rxin", "student")),
-      (7L, ("jgonzal", "postdoc")),
-      (5L, ("franklin", "prof")),
-      (2L, ("istoica", "prof"))))
-    val edg = sc.parallelize(Array(
-      Edge(3L, 7L, "collab"),
-      Edge(5L, 3L, "advisor"),
-      Edge(2L, 5L, "colleague"),
-      Edge(5L, 7L, "pi")))
-    Graph(vtx, edg)
-  }
+//  def getGraph(sc: SparkContext): Graph[(String, String), String] = {
+//    val vtx = sc.parallelize(Array(
+//      (3L, ("rxin", "student")),
+//      (7L, ("jgonzal", "postdoc")),
+//      (5L, ("franklin", "prof")),
+//      (2L, ("istoica", "prof"))))
+//    val edg = sc.parallelize(Array(
+//      Edge(3L, 7L, "collab"),
+//      Edge(5L, 3L, "advisor"),
+//      Edge(2L, 5L, "colleague"),
+//      Edge(5L, 7L, "pi")))
+//    Graph(vtx, edg)
+//  }
 
   def startSpark(): SparkContext = {
     val conf = new SparkConf()
@@ -41,8 +41,8 @@ object DBLoader {
     val db = new SpencerDB("test")
     db.loadFrom(new File("/tmp/tracefile"))
 
-    val sc : SparkContext = startSpark()
-
+//    val sc : SparkContext = startSpark()
+//
 //    new TraceFileIterator(new File("/tmp/tracefile"))
 //      .foreach(
 //        evt => {
@@ -53,8 +53,8 @@ object DBLoader {
 //          }
 //        }
 //      )
-
-    sc.stop()
+//
+//    sc.stop()
 
     System.exit(0)
 

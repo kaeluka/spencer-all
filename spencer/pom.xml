@@ -74,18 +74,6 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <version>2.10</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>properties</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.5.1</version>
                 <configuration>
@@ -114,6 +102,35 @@
                 </executions>
             </plugin>
 
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>2.10</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>com.github.maven-nar</groupId>
+                <artifactId>nar-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <targetDirectory>src/main/resources/nar</targetDirectory>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>nar-unpack-dependencies</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
     </build>
     <packaging>jar</packaging>
@@ -124,18 +141,6 @@
             <artifactId>junit</artifactId>
             <version>4.12</version>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.github.kaeluka</groupId>
-            <artifactId>spencer-tracing-java</artifactId>
-            <version>0.1.3-SNAPSHOT</version>
-            <type>jar</type>
-        </dependency>
-        <dependency>
-            <groupId>com.github.kaeluka</groupId>
-            <artifactId>spencer-tracing-osx</artifactId>
-            <version>0.1.3-SNAPSHOT</version>
-            <type>pom</type>
         </dependency>
         <dependency>
             <groupId>com.github.kaeluka</groupId>
@@ -158,7 +163,7 @@
         <dependency>
             <groupId>com.github.kaeluka</groupId>
             <artifactId>spencer-tracing</artifactId>
-            <type>pom</type>
+            <type>nar</type>
             <version>0.1.3-SNAPSHOT</version>
         </dependency>
         <dependency>
