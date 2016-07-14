@@ -68,9 +68,12 @@ public class Main {
         TransformerServer.awaitRunning();
 
         final Process process = getProcess(args, spencerArgs);
-        process.waitFor();
+        System.out.println("waiting");
+        final int exitStatus = process.waitFor();
 
         TransformerServer.tearDown();
+
+        System.exit(exitStatus);
     }
 
     private static List<String> popSpencerArgs(List<String> args) {
@@ -93,7 +96,6 @@ public class Main {
 
             return ret;
         } else {
-            System.out.println("all args ("+args+") go to spencer");
             final ArrayList<String> ret = new ArrayList<>(args);
             args.clear();
             return ret;
@@ -125,12 +127,9 @@ public class Main {
             return parsed;
 
         } catch (ParseException e) {
-            System.err.println(e.getMessage());
-//            Main.spencerOptions.
-            new HelpFormatter().printUsage(new PrintWriter(System.err), 0, "spencer", Main.spencerOptions);
-            //printHelp();
+            System.err.println("ERROR: "+e.getMessage());
+            printHelp();
             System.err.println("quitting");
-//            System.out.println(Main.spencerOptions.toString());
             System.exit(1);
             return null;
         }
