@@ -668,11 +668,6 @@ struct proto_heapMoves {
 
 };
 
-#include "use_counter.cpp"
-#include "event_counter.cpp"
-#include "global_lifetime.cpp"
-#include "class_name_extractor.cpp"
-
 struct proto_moves {
   int newestHolder = -1;
   bool newestIsVar = false;

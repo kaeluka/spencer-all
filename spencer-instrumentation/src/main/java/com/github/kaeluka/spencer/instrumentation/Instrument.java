@@ -19,8 +19,8 @@ public class Instrument {
 	public static final boolean tracing  = System.getProperty("org.spencer.instrumentation.tracing.enable",            "true"). equals("false");
 	public static final boolean checking = System.getProperty("org.spencer.instrumentation.checking.enable",           "true"). equals("true");
 
-	public static final boolean instrumentFields  = System.getProperty("org.spencer.instrumentation.fields.enable",    "true"). equals("true");
-	public static final boolean instrumentVars    = System.getProperty("org.spencer.instrumentation.variables.enable", "true"). equals("true");;
+	public static final boolean instrumentFields  = System.getProperty("org.spencer.instrumentation.fields.enable",    "true"). equals("false");
+	public static final boolean instrumentVars    = System.getProperty("org.spencer.instrumentation.variables.enable", "true"). equals("false");;
 	public static final boolean instrumentMethods = System.getProperty("org.spencer.instrumentation.methods.enable",   "true"). equals("true");;
 
 	protected static final boolean enableComments = System.getProperty("org.spencer.instrumentation.comments.enable",  "false").equals("true");
@@ -35,20 +35,18 @@ public class Instrument {
 	 * returned instead of oids
 	 * when there is no object
 	 */
-	public static final int SPECIAL_VAL_NOT_IMPLEMENTED = 3;
-
-    /*
+	public static final int SPECIAL_VAL_NOT_IMPLEMENTED = 3;/*
 	œ * the reference
 	 * should not be
 	 * used
 	 */
-	public static final int SPECIAL_VAL_JVM = 4;
 
-    /*
+	public static final int SPECIAL_VAL_JVM = 4; /*
 	 * the oid that represents the
 	 * JVM "object" calling static
 	 * void main(...)
 	 */
+
 	public static final int SPECIAL_VAL_MAX = 5;
 	private static List<String> errors = new ArrayList<>();
 

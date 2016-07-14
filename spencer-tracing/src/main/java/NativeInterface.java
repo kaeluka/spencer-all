@@ -1,4 +1,10 @@
+import com.github.kaeluka.spencer.tracing.NarSystem;
+
 public class NativeInterface {
+
+//  static {
+//    NarSystem.loadLibrary();
+//  }
 
   public static final int SPECIAL_VAL_NORMAL = 0; // normal
   public static final int SPECIAL_VAL_THIS = 1; //returned as callee id from constructors

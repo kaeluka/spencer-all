@@ -351,7 +351,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         public InstrumentationMV(MethodVisitor mv, String _classDescr,
                                  String name, int access, String signature) {
             super(Opcodes.ASM5, mv, access, name, signature);
-            this.classDescr = Type.getType(_classDescr).getInternalName();
+            this.classDescr = Type.getType(_classDescr).getInternalName().replace('.','/');
             this.methodname = name;
             this.signature = signature;
         }
@@ -870,7 +870,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                                 +")V",
                         false);
             }
-//            emitMethodEnter();
+            emitMethodEnter();
         }
 
         private void emitMethodEnter() {
@@ -886,7 +886,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
             }
 
             // String calleeclass
-            super.visitLdcInsn(InstrumentationVisitor.this.classname);
+            super.visitLdcInsn(InstrumentationVisitor.this.getClassName());
             // Object calleeValKind, callee
             pushThisKindAndObj();
             pushReftypeArgs();
@@ -978,7 +978,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                         throw new IllegalArgumentException("don't understand primitive type operand "+operand);
                 }
                 super.visitInsn(DUP);
-                super.visitLdcInsn(arrayType);
+                super.visitLdcInsn(Type.getType(arrayType).getInternalName().replace('.', '/'));
                 super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
                         "afterInitMethod",
                         "(Ljava/lang/Object;"
@@ -990,7 +990,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                 super.visitInsn(SWAP);
                 super.visitLdcInsn("(I)V");
                 super.visitInsn(SWAP);
-                this.visitLdcInsn(arrayType);
+                this.visitLdcInsn(Type.getType(arrayType).getInternalName().replace('.','/'));
                 super.visitInsn(SWAP);
                 this.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
                 super.visitInsn(SWAP);
@@ -1014,7 +1014,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
             switch (opcode) {
                 case ANEWARRAY:
                     super.visitInsn(DUP);
-                    super.visitLdcInsn("[Ljava/lang/Object;");
+                    super.visitLdcInsn(Type.getType("[Ljava/lang/Object;").getInternalName().replace('.', '/'));
                     super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
                             "afterInitMethod",
                             "(Ljava/lang/Object;"
@@ -1027,9 +1027,9 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                     super.visitLdcInsn("(I)V");
                     super.visitInsn(SWAP);
                     if (isArrayType(type)) {
-                        this.visitLdcInsn("["+type+";");
+                        this.visitLdcInsn(Type.getType("["+type+";").getInternalName().replace('.','/'));
                     } else {
-                        this.visitLdcInsn("[L"+type+";");
+                        this.visitLdcInsn(Type.getType("[L"+type+";").getInternalName().replace('.','/'));
                     }
                     super.visitInsn(SWAP);
                     this.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);

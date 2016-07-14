@@ -1,16 +1,18 @@
 package com.github.kaeluka.spencer;
 import com.github.kaeluka.spencer.server.TransformerServer;
+
 import org.apache.commons.cli.*;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
 import java.net.URLClassLoader;
-import java.util.Properties;
 import java.util.stream.Collectors;
 
 public class Main {
@@ -152,6 +154,15 @@ public class Main {
 
         java.util.Properties p = new Properties();
         p.load(is);
+        System.out.println("===============");
+        final List keys = new LinkedList();
+        keys.addAll(p.keySet());
+        keys.sort(Comparator.naturalOrder());
+        for (Object key : keys) {
+            System.out.println(key+"\t"+p.getProperty((String)key));
+        }
+        System.out.println("===============");
+
         final String nativeInterfaceLocation = p.getProperty("com.github.kaeluka:spencer-tracing-java:jar");
         System.out.println("com.github.kaeluka:spencer-tracing-java:jar = "+ nativeInterfaceLocation);
 
@@ -160,19 +171,30 @@ public class Main {
         //FIXME hard-coded OS
         final String tracingNativePom = p.getProperty("com.github.kaeluka:spencer-tracing-osx:pom");
         if (tracingNativePom == null) {
-            throw new IllegalStateException("could not find pom.xml for spencer-tracing-osx project");
+            System.out.println("could not find pom.xml for spencer-tracing-osx project");
         }
         System.out.println("1");
         //FIXME hard-coded path
-        final String tracingJni = new File(tracingNativePom).getParentFile().getAbsolutePath()+"/spencer-tracing-osx-0.1.3-SNAPSHOT.so";
-        if (!new File(tracingJni).exists()) {
-            throw new IllegalStateException("could not find agent binary: "+tracingJni);
+//        final String tracingJni = System.mapLibraryName("spencer-tracing-0.1.3-SNAPSHOT"); //new File(tracingNativePom).getParentFile().getAbsolutePath()+"/spencer-tracing-osx-0.1.3-SNAPSHOT.so";
+        final String aol = p.getProperty("nar.aol");
+        final String version="0.1.3-SNAPSHOT";
+        final URL resource = Main.class.getResource("/nar/spencer-tracing-"+version+"-" + aol+"-jni" + "/lib/" + aol + "/jni/libspencer-tracing-"+version+".jnilib");
+
+        final File tempAgentFile = Files.createTempFile("spencer-tracing-agent", ".jnilib").toFile();
+        tempAgentFile.createNewFile();
+        tempAgentFile.deleteOnExit();
+        FileUtils.copyURLToFile(resource, tempAgentFile);
+
+        System.out.println("resource: "+resource);
+        System.out.println("agent temp: "+tempAgentFile);
+
+
+        if (!tempAgentFile.exists()) {
+            System.out.println("oops");
+            throw new IllegalStateException("could not find agent binary: "+tempAgentFile);
         }
-//        final File file = new File(tracingJni);
-//        if (!file.exists()) {
-//            throw new IllegalStateException("Could not find agent binary: "+file.getAbsolutePath() + " wtf");
-//        }
-        argStrings.add("-agentpath:" + tracingJni + "=tracefile=/tmp/tracefile");
+        argStrings.add("-agentpath:" + tempAgentFile.getAbsolutePath() + "=tmp/tracefile");
+
         for (String arg : jvmArgs) {
             argStrings.addAll(Arrays.asList(arg.split(" ")));
         }

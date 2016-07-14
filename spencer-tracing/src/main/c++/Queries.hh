@@ -798,7 +798,7 @@ template <class Protocol> struct _implement {
   inline bool isFrozen() const { return false; }
 
   inline const void description(std::ostream &out) const {
-    const int SUCC = this->actives.size();
+    const unsigned long SUCC = this->actives.size();
     const int TOTL = SUCC + this->dead.size();
     const float PERC = SUCC * 100.0 / TOTL;
     out << SUCC << " survivors (" << PERC << "%), " << this->dead.size()
