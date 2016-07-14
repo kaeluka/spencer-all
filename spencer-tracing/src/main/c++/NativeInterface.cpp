@@ -40,7 +40,7 @@ std::string getTracefileName() {
     result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
     return result+"/prototracefile.log";
   */
-  return "/tmp/tracefile";
+  return "./tracefile";
 }
 
 std::string tracefilename = getTracefileName();
@@ -1259,13 +1259,13 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
     // phase:
     for (auto redef = redefineDuringLivePhase.begin(); redef != redefineDuringLivePhase.end(); ++redef) {
       if (//redef->name == "java/lang/SystemClassLoaderAction" ||
-          redef->name == "java/lang/Class" ||
-          redef->name == "sun/reflect/Reflection"
+          redef->name == "java/lang/Class"
+          //          || redef->name == "sun/reflect/Reflection"
           ) {
-        WARN("NEVER instrumenting "<<redef->name);
+        DBG("never instrumenting "<<redef->name);
         return;
       }
-      DODBG("redefining klass "<<redef->name);
+      DBG("redefining klass "<<redef->name);
       unsigned char *new_class_data;
       uint32_t new_class_data_len;
       transformClass(redef->klassDef.class_bytes, redef->klassDef.class_byte_count, &new_class_data, &new_class_data_len);

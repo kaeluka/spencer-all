@@ -23,15 +23,17 @@ public class Main {
         final Options options = new Options();
         options.addOption(
                 Option
-                        .builder("full")
-                        .desc("Instrument as many classes in the Java runtime as possible.")
+                        .builder("tracedir")
+                        .hasArg()
+                        .argName("path/to/dir")
+                        .optionalArg(false)
+                        .desc("The directory to write to.")
                         .build());
         options.addOption(
                 Option
                         .builder("verbose")
-                        .desc("Log output to stdout.")
+                        .desc("Show diagnostic output.")
                         .build());
-
         options.addOption(
                 Option
                         .builder("help")
@@ -44,6 +46,15 @@ public class Main {
     public static void main(String[] _args) throws IOException, InterruptedException {
         final ArrayList<String> args = tokenizeArgs(_args);
         final CommandLine spencerArgs = parseSpencerArgs(popSpencerArgs(args));
+        assert spencerArgs != null;
+
+        logIfVerbose("spencerArgs: ", spencerArgs);
+        final Iterator<Option> argIter = spencerArgs.iterator();
+        while (argIter.hasNext()) {
+            logIfVerbose(argIter.next().toString(), spencerArgs);
+        }
+
+        logIfVerbose("tracedir:"+spencerArgs.getOptionValue("tracedir"), spencerArgs);
 
         new Thread(() -> {
             try {
@@ -56,7 +67,7 @@ public class Main {
         //waiting for server to start
         TransformerServer.awaitRunning();
 
-        final Process process = getProcess(args, spencerArgs.hasOption("full"));
+        final Process process = getProcess(args, spencerArgs);
         process.waitFor();
 
         TransformerServer.tearDown();
@@ -102,6 +113,15 @@ public class Main {
                 System.exit(0);
             }
 
+            final String tracedir = parsed.getOptionValue("tracedir");
+            if (tracedir != null) {
+                final File dir = new File(tracedir);
+                if ((! dir.exists()) || (! dir.isDirectory())) {
+                    System.err.println("ERROR: trace directory "+tracedir+" does not exist or is no directory");
+                    System.exit(1);
+                }
+            }
+
             return parsed;
 
         } catch (ParseException e) {
@@ -127,11 +147,13 @@ public class Main {
                 true);
     }
 
-    private static Process getProcess(final ArrayList<String> jvmArgs, final boolean fullInstrumentation) throws IOException {
+    private static void logIfVerbose(String txt, CommandLine spencerArgs) {
+        if (spencerArgs.hasOption("verbose")) {
+            System.out.println(txt);
+        }
+    }
 
-//        jvmArgs = jvmArgs.stream()
-//                .filter(arg -> arg.replaceAll(" ", "").length() > 0)
-//                .collect(Collectors.toList());
+    private static Process getProcess(final ArrayList<String> jvmArgs, CommandLine spencerArgs) throws IOException {
 
         final String sep = System.getProperty("file.separator");
 
@@ -140,60 +162,47 @@ public class Main {
         //executable:
         argStrings.add(System.getProperty("java.home") + sep + "bin" + sep + "java");
 
-        if (fullInstrumentation) {
-            // the transformed runtime
-            final File file = new File(System.getProperty("user.home") + ("/.spencer/instrumented_java_rt/output"));
-            if (! file.isDirectory()) {
-                throw new IllegalStateException("can not run full instrumentation: file "+file.getAbsolutePath()+" does not exist!");
-            }
-            argStrings.add("-Xbootclasspath/p:" + System.getProperty("user.home") + ("/.spencer/instrumented_java_rt/output".replaceAll("/", sep)));
-        }
-
-        System.out.println("cp is: "+System.getProperty("java.class.path"));
+        logIfVerbose("cp is: "+System.getProperty("java.class.path"), spencerArgs);
         java.io.InputStream is = Main.class.getResourceAsStream("/dependencies.properties");
 
         java.util.Properties p = new Properties();
         p.load(is);
-        System.out.println("===============");
+
+        logIfVerbose("===============", spencerArgs);
         final List keys = new LinkedList();
         keys.addAll(p.keySet());
         keys.sort(Comparator.naturalOrder());
         for (Object key : keys) {
-            System.out.println(key+"\t"+p.getProperty((String)key));
+            logIfVerbose(key + "\t" + p.getProperty((String) key), spencerArgs);
         }
-        System.out.println("===============");
+        logIfVerbose("===============", spencerArgs);
 
         final String nativeInterfaceLocation = p.getProperty("com.github.kaeluka:spencer-tracing-java:jar");
-        System.out.println("com.github.kaeluka:spencer-tracing-java:jar = "+ nativeInterfaceLocation);
+        logIfVerbose("com.github.kaeluka:spencer-tracing-java:jar = " + nativeInterfaceLocation, spencerArgs);
 
         argStrings.add("-Xbootclasspath/p:" + nativeInterfaceLocation);
 
-        //FIXME hard-coded OS
-        final String tracingNativePom = p.getProperty("com.github.kaeluka:spencer-tracing-osx:pom");
-        if (tracingNativePom == null) {
-            System.out.println("could not find pom.xml for spencer-tracing-osx project");
-        }
-        System.out.println("1");
-        //FIXME hard-coded path
-//        final String tracingJni = System.mapLibraryName("spencer-tracing-0.1.3-SNAPSHOT"); //new File(tracingNativePom).getParentFile().getAbsolutePath()+"/spencer-tracing-osx-0.1.3-SNAPSHOT.so";
         final String aol = p.getProperty("nar.aol");
         final String version="0.1.3-SNAPSHOT";
         final URL resource = Main.class.getResource("/nar/spencer-tracing-"+version+"-" + aol+"-jni" + "/lib/" + aol + "/jni/libspencer-tracing-"+version+".jnilib");
 
         final File tempAgentFile = Files.createTempFile("spencer-tracing-agent", ".jnilib").toFile();
-        tempAgentFile.createNewFile();
+        assert tempAgentFile.createNewFile();
         tempAgentFile.deleteOnExit();
+
         FileUtils.copyURLToFile(resource, tempAgentFile);
 
-        System.out.println("resource: "+resource);
-        System.out.println("agent temp: "+tempAgentFile);
+        logIfVerbose("agent binary: "+tempAgentFile, spencerArgs);
 
 
         if (!tempAgentFile.exists()) {
-            System.out.println("oops");
             throw new IllegalStateException("could not find agent binary: "+tempAgentFile);
         }
-        argStrings.add("-agentpath:" + tempAgentFile.getAbsolutePath() + "=tmp/tracefile");
+        final String tracedir = spencerArgs.getOptionValue("tracedir") == null ?
+                "/tmp" :
+                spencerArgs.getOptionValue("tracedir");
+
+        argStrings.add("-agentpath:" + tempAgentFile.getAbsolutePath() + "=tracefile="+tracedir+"/tracefile");
 
         for (String arg : jvmArgs) {
             argStrings.addAll(Arrays.asList(arg.split(" ")));
@@ -202,32 +211,26 @@ public class Main {
         ProcessBuilder processBuilder = new ProcessBuilder(
                 argStrings);
 
-        System.out.println("running command: "+processBuilder.command());
+        logIfVerbose("running command: "+processBuilder.command(), spencerArgs);
 
         processBuilder.redirectOutput(ProcessBuilder.Redirect.INHERIT);
         processBuilder.redirectError(ProcessBuilder.Redirect.INHERIT);
         processBuilder.redirectInput(ProcessBuilder.Redirect.INHERIT);
 
-        System.out.println("5");
-
         return processBuilder.start();
     }
 
     private static ArrayList<String> tokenizeArgs(final String[] args) {
-//        System.out.println("tokenizing "+Arrays.asList(args));
         ArrayList<String> ret = new ArrayList<>();
         for (String arg : args) {
             final String[] split = arg.split(" ");
-//            for (int i=0; i<split.length; ++i) {
-//                split[i] = split[i].trim();
-//            }
             ret.addAll(Arrays.asList(split));
         }
         return ret;
     }
 
-    private static void printClassPath() {
+    private static void printClassPath(CommandLine spencerArgs) {
         final List<URL> urLs = Arrays.asList(((URLClassLoader) Main.class.getClassLoader()).getURLs());
-        System.out.println("class path: "+ urLs);
+        logIfVerbose("class path: "+ urLs, spencerArgs);
     }
 }

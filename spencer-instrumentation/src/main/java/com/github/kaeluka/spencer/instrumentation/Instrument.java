@@ -19,8 +19,8 @@ public class Instrument {
 	public static final boolean tracing  = System.getProperty("org.spencer.instrumentation.tracing.enable",            "true"). equals("false");
 	public static final boolean checking = System.getProperty("org.spencer.instrumentation.checking.enable",           "true"). equals("true");
 
-	public static final boolean instrumentFields  = System.getProperty("org.spencer.instrumentation.fields.enable",    "true"). equals("false");
-	public static final boolean instrumentVars    = System.getProperty("org.spencer.instrumentation.variables.enable", "true"). equals("false");;
+	public static final boolean instrumentFields  = System.getProperty("org.spencer.instrumentation.fields.enable",    "true"). equals("true");
+	public static final boolean instrumentVars    = System.getProperty("org.spencer.instrumentation.variables.enable", "true"). equals("true");;
 	public static final boolean instrumentMethods = System.getProperty("org.spencer.instrumentation.methods.enable",   "true"). equals("true");;
 
 	protected static final boolean enableComments = System.getProperty("org.spencer.instrumentation.comments.enable",  "false").equals("true");
