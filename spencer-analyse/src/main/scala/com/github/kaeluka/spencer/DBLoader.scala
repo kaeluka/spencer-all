@@ -27,7 +27,7 @@ object DBLoader {
 
   def startSpark(): SparkContext = {
     val conf = new SparkConf()
-      .setAppName("spencer-db")
+      .setAppName("spencer-analyse")
       .set("spark.cassandra.connection.host", "127.0.0.1")
       .setMaster("local[2]")
 
@@ -36,7 +36,7 @@ object DBLoader {
 
   def main(args: Array[String]) {
 
-    println("spencer-db starting...")
+    println("spencer cassandra loader starting...")
 
     val db = new SpencerDB("test")
     db.loadFrom(new File("/tmp/tracefile"))

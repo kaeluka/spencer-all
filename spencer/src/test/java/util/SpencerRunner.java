@@ -1,24 +1,29 @@
 package util;
 
-import com.github.kaeluka.spencer.runtimetransformer.RuntimeTransformer;
-
+import java.nio.file.Path;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+
+
 
 public class SpencerRunner {
     public static RunResult runWithArgs(final List<String> _args) {
         List<String> args = new ArrayList<String>();
         args.add("../../spencer");
-        args.add("--");
-        args.addAll(_args);
-        ProcessBuilder p = new ProcessBuilder(
-                args);
-        p.directory(new File("target/test-classes"));
+        Path tempDir;
         try {
+            tempDir = getTempDir();
+            args.add("-tracedir "+tempDir.toString());
+            args.add("--");
+            args.addAll(_args);
+            ProcessBuilder p = new ProcessBuilder(
+                    args);
+            p.directory(new File("target/test-classes"));
             final Process process = p.start();
 
             final InputStreamReader stdoutReader =
@@ -31,7 +36,6 @@ public class SpencerRunner {
                 stdout.append("\n");
                 stdout.append(line);
             }
-
 
             final InputStreamReader stderrReader =
                     new InputStreamReader(process.getErrorStream());
@@ -48,24 +52,38 @@ public class SpencerRunner {
                         stdout.toString(),
                         stderr.toString());
             } else {
-                return new RunResult(stdout.toString(), stderr.toString());
+                return new RunResult(
+                        stdout.toString(),
+                        stderr.toString(),
+                        tempDir);
             }
 
         } catch (IOException | InterruptedException e) {
-            e.printStackTrace();
+            throw new RuntimeException(e);
         }
-        return null;
+    }
+
+
+    private static Path getTempDir() throws IOException {
+        final Path ret = Files.createTempDirectory("test");
+        ret.toFile().deleteOnExit();
+        return ret;
     }
 
     public static class RunResult {
         public final String stdout;
         public final String stderr;
+        public final Path tracedir;
 
-        private RunResult(final String stdout, final String stderr) {
+        private RunResult(final String stdout,
+                          final String stderr,
+                          final Path tracedir) {
             assert stdout != null;
             assert stderr != null;
+            assert tracedir != null;
             this.stdout = stdout;
             this.stderr = stderr;
+            this.tracedir = tracedir;
         }
     }
 

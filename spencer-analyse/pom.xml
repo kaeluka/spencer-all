@@ -22,9 +22,9 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
-    <artifactId>spencer-db</artifactId>
+    <artifactId>spencer-analyse</artifactId>
 
-    <name>spencer-db</name>
+    <name>spencer-analyse</name>
 
     <parent>
         <groupId>com.github.kaeluka</groupId>
