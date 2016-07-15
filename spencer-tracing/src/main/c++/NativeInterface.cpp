@@ -208,6 +208,7 @@ void transformClass(const unsigned char *class_data, uint32_t class_data_len, un
 
   sock = setupSocket();
   *new_class_data_len = recvClass(sock, new_class_data);
+  ASSERT(*new_class_data != class_data);
 }
 
 void handleLoadFieldA(
@@ -764,7 +765,7 @@ void handleStoreFieldA(
     jobject caller) {
 #ifdef ENABLED
   LOCK;
-  DODBG("Java_NativeInterface_storeFieldA "<<holderClass<<"::"<<fname);
+  DBG("Java_NativeInterface_storeFieldA "<<holderClass<<"::"<<fname);
 
   //  handleValStatic(env, &holderKind, &holder, holderClass);
   auto threadName = getThreadName();

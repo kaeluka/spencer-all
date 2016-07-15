@@ -47,7 +47,10 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
     @Override
     public void visit(int version, int access, String name, String signature,
                       String superName, String[] interfaces) {
-        this.classname = Type.getType(name).getInternalName().replace('.', '/');
+//        System.out.println("name ="+name);
+//        System.out.println("type ="+Type.getType("L"+name+";"));
+
+        this.classname = Type.getType("L"+name+";").getInternalName().replace('.', '/');
         super.visit(version, access, name, signature, superName, interfaces);
     }
 
@@ -226,7 +229,11 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
          * @param idx
          */
         public Object getTypeOfLocal(final int idx) {
-            return this.analyzer.locals.get(idx);
+            if (this.analyzer.locals != null) {
+                return this.analyzer.locals.get(idx);
+            } else {
+                return null;
+            }
         }
 
         /**
@@ -335,10 +342,10 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         protected void pushThreadObj() {
         }
 
-        public InstrumentationMV(MethodVisitor mv, String _classDescr,
+        public InstrumentationMV(MethodVisitor mv, String className,
                                  String name, int access, String signature) {
             super(Opcodes.ASM5, mv, access, name, signature);
-            this.classDescr = Type.getType(_classDescr).getInternalName().replace('.','/');
+            this.classDescr = Type.getType("L"+className+";").getInternalName().replace('.','/');
             this.methodname = name;
             this.signature = signature;
         }
@@ -847,6 +854,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 
         @Override
         public void onMethodEnter() {
+
             if ("<init>".equals(this.getMethodName())) {
                 super.visitVarInsn(ALOAD,0);
                 super.visitLdcInsn(this.getClassDescr());

@@ -176,11 +176,6 @@ public class Main {
         }
         logIfVerbose("===============", spencerArgs);
 
-        final String nativeInterfaceLocation = p.getProperty("com.github.kaeluka:spencer-tracing-java:jar");
-        logIfVerbose("com.github.kaeluka:spencer-tracing-java:jar = " + nativeInterfaceLocation, spencerArgs);
-
-        argStrings.add("-Xbootclasspath/p:" + nativeInterfaceLocation);
-
         final String aol = p.getProperty("nar.aol");
         final String version="0.1.3-SNAPSHOT";
         final URL resource = Main.class.getResource("/nar/spencer-tracing-"+version+"-" + aol+"-jni" + "/lib/" + aol + "/jni/libspencer-tracing-"+version+".jnilib");
