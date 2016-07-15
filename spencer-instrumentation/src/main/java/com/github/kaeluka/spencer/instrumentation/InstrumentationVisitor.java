@@ -5,6 +5,10 @@ import org.objectweb.asm.commons.AdviceAdapter;
 import org.objectweb.asm.commons.AnalyzerAdapter;
 import org.objectweb.asm.commons.JSRInlinerAdapter;
 
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 
@@ -59,10 +63,10 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 
         if (Instrument.instrumentMethods) {
             // TODO: connecting the analyzer should be factored out (duplicated below)!
-            final MethodMV methodMv = new MethodMV(acc, this.getClassName(), name,
+            final MethodMV methodMV = new MethodMV(acc, this.getClassName(), name,
                     access, desc);
             MethodVisitor exitHandler = ExitHandler.mk(
-                    methodMv, access, name,
+                    methodMV, access, name,
                     desc, signature, exceptions, (mv, reason) -> {
                         mv.visitLdcInsn("reason for exit: "+reason);
                         mv.visitInsn(POP);
@@ -71,26 +75,26 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                         mv.visitMethodInsn(INVOKESTATIC, "NativeInterface", "methodExit",
                                 "(Ljava/lang/String;Ljava/lang/String;)V", false);
                     });
-            AnalyzerAdapter analyzer = new AnalyzerAdapter(this.classname,
+            final AnalyzerAdapter analyzer = new AnalyzerAdapter(this.classname,
                     access, name, desc, exitHandler);
-            methodMv.setAnalyzer(analyzer);
+            methodMV.setAnalyzer(analyzer);
             acc = analyzer;
         }
 
         if (Instrument.instrumentVars) {
-            VarMV varmv = new VarMV(acc, this.getClassName(), name, access,
+            final VarMV varMV = new VarMV(acc, this.getClassName(), name, access,
                     desc);
-            AnalyzerAdapter analyzer = new AnalyzerAdapter(this.classname,
-                    access, name, desc, varmv);
-            varmv.setAnalyzer(analyzer);
+            final AnalyzerAdapter analyzer = new AnalyzerAdapter(this.classname,
+                    access, name, desc, varMV);
+            varMV.setAnalyzer(analyzer);
             acc = analyzer;
         }
         if (Instrument.instrumentFields) {
-            FieldMV fieldmv = new FieldMV(acc, this.getClassName(), name,
+            final FieldMV fieldMV = new FieldMV(acc, this.getClassName(), name,
                     access, desc);
-            AnalyzerAdapter analyzer = new AnalyzerAdapter(this.classname,
-                    access, name, desc, fieldmv);
-            fieldmv.setAnalyzer(analyzer);
+            final AnalyzerAdapter analyzer = new AnalyzerAdapter(this.classname,
+                    access, name, desc, fieldMV);
+            fieldMV.setAnalyzer(analyzer);
             acc = analyzer;
         }
 
@@ -205,23 +209,6 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         }
 
         protected void pushThisKindAndObj() {
-//            throw new RuntimeException("no locals in "+this.getClassDescr()+"::"+this.getMethodName());
-            if (this.analyzer.locals == null) {
-                //This code is unreachable
-                if (this.isStatic()) {
-                    super.visitLdcInsn(Instrument.SPECIAL_VAL_STATIC);
-                    super.visitInsn(ACONST_NULL);
-                } else {
-//					if ("<init>".equals(this.getMethodName())) {
-//						super.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
-//                      super.visitInsn(ACONST_NULL);
-//					} else {
-                    super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
-                    super.visitVarInsn(ALOAD, 0);
-//					}
-                }
-
-            } else
             if (this.isStatic()) {
                 super.visitLdcInsn(Instrument.SPECIAL_VAL_STATIC);
                 super.visitInsn(ACONST_NULL);
@@ -341,7 +328,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 
         protected void pushFakeKindAndVal() {
             super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
-            this.visitLdcInsn(ACONST_NULL);
+            super.visitLdcInsn(ACONST_NULL);
         }
 
         @Deprecated
@@ -712,7 +699,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                 pushCallerClassStr();            //..holder,val,SPECIAL_VAL_xxx,NULL|holder,holderclass,fname,type,callerclass
                 pushMethodNameStr();             //..holder,val,SPECIAL_VAL_xxx,NULL|holder,holderclass,fname,type,callerclass,mname
                 pushThisKindAndObj();            //..holder,val,SPECIAL_VAL_xxx,NULL|holder,holderclass,fname,type,callerclass,mname,thiskind,this
-                mv.visitMethodInsn(INVOKESTATIC,
+                super.visitMethodInsn(INVOKESTATIC,
                         "NativeInterface", "loadFieldA",
                         "("
                                 + "Ljava/lang/Object;" // val
@@ -861,7 +848,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         @Override
         public void onMethodEnter() {
             if ("<init>".equals(this.getMethodName())) {
-                this.visitVarInsn(ALOAD,0);
+                super.visitVarInsn(ALOAD,0);
                 super.visitLdcInsn(this.getClassDescr());
                 super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
                         "afterInitMethod",
@@ -990,11 +977,11 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                 super.visitInsn(SWAP);
                 super.visitLdcInsn("(I)V");
                 super.visitInsn(SWAP);
-                this.visitLdcInsn(Type.getType(arrayType).getInternalName().replace('.','/'));
+                super.visitLdcInsn(Type.getType(arrayType).getInternalName().replace('.','/'));
                 super.visitInsn(SWAP);
-                this.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
+                super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
                 super.visitInsn(SWAP);
-                this.visitInsn(ACONST_NULL);
+                super.visitInsn(ACONST_NULL);
                 super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
                         "methodEnter",
                         "(Ljava/lang/String;"    // name
@@ -1032,9 +1019,9 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                         this.visitLdcInsn(Type.getType("[L"+type+";").getInternalName().replace('.','/'));
                     }
                     super.visitInsn(SWAP);
-                    this.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
+                    super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
                     super.visitInsn(SWAP);
-                    this.visitInsn(ACONST_NULL);
+                    super.visitInsn(ACONST_NULL);
                     super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
                             "methodEnter",
                             "(Ljava/lang/String;"    // name
@@ -1058,11 +1045,10 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
 
         @Override
         public void visitVarInsn(int opcode, int var) {
-			/*
-			 * if (getMethodName().equals("<init>")) {
-			 * warning("skipping (STORE|LOAD)VAR due to being in constructor");
-			 * } else
-			 */{
+//			 if (getMethodName().equals("<init>")) {
+
+//			 } else
+            {
                 // System.out.println("visiting var "+var+", with opcode "+opcode);
                 switch (opcode) {
                     case ILOAD:

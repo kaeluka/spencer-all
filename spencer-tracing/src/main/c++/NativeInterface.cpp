@@ -764,7 +764,7 @@ void handleStoreFieldA(
     jobject caller) {
 #ifdef ENABLED
   LOCK;
-  DBG("Java_NativeInterface_storeFieldA "<<holderClass<<"::"<<fname);
+  DODBG("Java_NativeInterface_storeFieldA "<<holderClass<<"::"<<fname);
 
   //  handleValStatic(env, &holderKind, &holder, holderClass);
   auto threadName = getThreadName();
