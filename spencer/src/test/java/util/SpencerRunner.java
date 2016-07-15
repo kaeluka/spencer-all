@@ -6,6 +6,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,12 +15,13 @@ import java.util.List;
 
 public class SpencerRunner {
     public static RunResult runWithArgs(final List<String> _args) {
-        List<String> args = new ArrayList<String>();
-        args.add("../../spencer");
-        Path tempDir;
         try {
-            tempDir = getTempDir();
-            args.add("-tracedir "+tempDir.toString());
+
+            Path testDir = getTestDir();
+
+            List<String> args = new ArrayList<String>();
+            args.add("../../spencer");
+            args.add("-tracedir "+testDir);
             args.add("--");
             args.addAll(_args);
             ProcessBuilder p = new ProcessBuilder(
@@ -55,7 +58,7 @@ public class SpencerRunner {
                 return new RunResult(
                         stdout.toString(),
                         stderr.toString(),
-                        tempDir);
+                        testDir);
             }
 
         } catch (IOException | InterruptedException e) {
@@ -66,6 +69,12 @@ public class SpencerRunner {
 
     private static Path getTempDir() throws IOException {
         final Path ret = Files.createTempDirectory("test");
+        ret.toFile().deleteOnExit();
+        return ret;
+    }
+
+    private static Path getTestDir() throws IOException {
+        Path ret = Files.createTempDirectory("test");
         ret.toFile().deleteOnExit();
         return ret;
     }
@@ -84,6 +93,12 @@ public class SpencerRunner {
             this.stdout = stdout;
             this.stderr = stderr;
             this.tracedir = tracedir;
+            assert this.getTracefile().toFile().exists();
+        }
+
+        public Path getTracefile() {
+            final Path ret = Paths.get(this.tracedir.toString(), "tracefile");
+            return ret;
         }
     }
 

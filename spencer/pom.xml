@@ -171,6 +171,7 @@
             <groupId>com.github.kaeluka</groupId>
             <artifactId>spencer-analyse</artifactId>
             <version>0.1.3-SNAPSHOT</version>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>

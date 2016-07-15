@@ -1211,22 +1211,38 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
     ASSERT_NO_JVMTI_ERR(env, err);
 
     for (auto it = freshlyTagged.begin(); it != freshlyTagged.end(); ++it) {
-      capnp::MallocMessageBuilder outermessage;
-      AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
-      capnp::MallocMessageBuilder innermessage;
-      MethodEnterEvt::Builder msgbuilder =
-        innermessage.initRoot<MethodEnterEvt>();
-      msgbuilder.setName("<init>");
-      msgbuilder.setSignature("(<unknown>)V");
-      msgbuilder.setCalleeclass(getTypeForTag(jni, *it));
-      msgbuilder.setCalleetag(*it);
-      msgbuilder.setCallsitefile("<jvmInternals>");
-      msgbuilder.setCallsiteline(-1);
-      msgbuilder.setThreadName("JVM_Thread<?>");
+      {
+        capnp::MallocMessageBuilder outermessage;
+        AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
+        capnp::MallocMessageBuilder innermessage;
+        MethodEnterEvt::Builder msgbuilder =
+          innermessage.initRoot<MethodEnterEvt>();
+        msgbuilder.setName("<init>");
+        msgbuilder.setSignature("(<unknown>)V");
+        msgbuilder.setCalleeclass(getTypeForTag(jni, *it));
+        msgbuilder.setCalleetag(*it);
+        msgbuilder.setCallsitefile("<jvmInternals>");
+        msgbuilder.setCallsiteline(-1);
+        msgbuilder.setThreadName("JVM_Thread<?>");
 
-      anybuilder.setMethodenter(msgbuilder.asReader());
+        anybuilder.setMethodenter(msgbuilder.asReader());
 
-      capnp::writeMessageToFd(capnproto_fd, outermessage);
+        capnp::writeMessageToFd(capnproto_fd, outermessage);
+      }
+
+      {
+        capnp::MallocMessageBuilder outermessage;
+        AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
+        capnp::MallocMessageBuilder innermessage;
+        MethodExitEvt::Builder msgbuilder =
+          innermessage.initRoot<MethodExitEvt>();
+        msgbuilder.setName("<init>");
+        msgbuilder.setThreadName("JVM_Thread<?>");
+
+        anybuilder.setMethodexit(msgbuilder.asReader());
+
+        capnp::writeMessageToFd(capnproto_fd, outermessage);
+      }
     }
   }
 
