@@ -38,7 +38,6 @@
 
     <build>
         <plugins>
-
             <plugin>
                 <groupId>org.scala-tools</groupId>
                 <artifactId>maven-scala-plugin</artifactId>
@@ -121,6 +120,13 @@
             <version>0.1.3-SNAPSHOT</version>
             <classifier>events</classifier>
             <type>jar</type>
+        </dependency>
+
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest-all</artifactId>
+            <version>1.3</version>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
