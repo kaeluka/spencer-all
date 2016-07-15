@@ -6,19 +6,26 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
 public class SpencerRunner {
     public static RunResult runWithArgs(final List<String> _args) {
-        List<String> args = new ArrayList<String>();
-        args.add("../../spencer");
-        args.add("--");
-        args.addAll(_args);
-        ProcessBuilder p = new ProcessBuilder(
-                args);
-        p.directory(new File("target/test-classes"));
         try {
+
+            Path testDir = getTestDir();
+
+            List<String> args = new ArrayList<String>();
+            args.add("../../spencer");
+            args.add("-tracedir "+testDir);
+            args.add("--");
+            args.addAll(_args);
+            ProcessBuilder p = new ProcessBuilder(
+                    args);
+            p.directory(new File("target/test-classes"));
             final Process process = p.start();
 
             final InputStreamReader stdoutReader =
@@ -48,7 +55,10 @@ public class SpencerRunner {
                         stdout.toString(),
                         stderr.toString());
             } else {
-                return new RunResult(stdout.toString(), stderr.toString());
+                return new RunResult(
+                        stdout.toString(),
+                        stderr.toString(),
+                        testDir);
             }
 
         } catch (IOException | InterruptedException e) {
@@ -57,15 +67,32 @@ public class SpencerRunner {
         return null;
     }
 
+    private static Path getTestDir() throws IOException {
+        Path ret = Files.createTempDirectory("test");
+        ret.toFile().deleteOnExit();
+        return ret;
+    }
+
     public static class RunResult {
         public final String stdout;
         public final String stderr;
+        public final Path tracedir;
 
-        private RunResult(final String stdout, final String stderr) {
+        private RunResult(final String stdout,
+                          final String stderr,
+                          final Path tracedir) {
             assert stdout != null;
             assert stderr != null;
+            assert tracedir != null;
             this.stdout = stdout;
             this.stderr = stderr;
+            this.tracedir = tracedir;
+            assert this.getTracefile().toFile().exists();
+        }
+
+        public Path getTracefile() {
+            final Path ret = Paths.get(this.tracedir.toString(), "tracefile");
+            return ret;
         }
     }
 
