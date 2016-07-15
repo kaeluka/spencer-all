@@ -55,7 +55,7 @@
         <module>spencer-runtime-transformer</module>
         <module>spencer-server</module>
         <module>spencer-tracing</module>
-        <module>spencer-db</module>
+        <module>spencer-analyse</module>
     </modules>
 
     <build>
