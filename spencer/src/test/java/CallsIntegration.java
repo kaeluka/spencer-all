@@ -7,14 +7,13 @@ import org.junit.Before;
 import org.junit.Test;
 import util.SpencerRunner;
 
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Stack;
 
-import static org.hamcrest.CoreMatchers.*;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.greaterThan;
-import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.*;
 
 public class CallsIntegration {
 
@@ -29,8 +28,9 @@ public class CallsIntegration {
 
     @Test
     public void callNumbersMatch() {
-        TraceFileIterator it = getTraceFileIterator();
-        final HashMap<Events.AnyEvt.Which, Object> events = CountEvents.analyse(it);
+        TraceFileIterator it = getTraceFileIterator(this.runResult.getTracefile());
+        final HashMap<String, HashMap<Events.AnyEvt.Which, Object>>
+                eventsPerThread = CountEvents.analyse(it);
 
 //        assertThat("must have some var loads",
 //                (Integer)events.get(Which.VARLOAD),
@@ -44,12 +44,18 @@ public class CallsIntegration {
 //        assertThat("must have some field stores",
 //                (Integer)events.get(Which.FIELDSTORE),
 //                greaterThan(0));
-        assertThat("must have some method enters",
-                (Integer)events.get(Which.METHODENTER),
-                greaterThan(0));
-        assertThat("Method enters and method exits must match in numbers",
-                events.get(Events.AnyEvt.Which.METHODENTER),
-                is(events.get(Events.AnyEvt.Which.METHODEXIT)));
+        for (String thdName : eventsPerThread.keySet()) {
+            if (!thdName.startsWith("<")) {
+                final HashMap<Which, Object> events = eventsPerThread.get(thdName);
+                assertThat("must have some method enters for thread '" + thdName + "'",
+                        (Integer) events.get(Which.METHODENTER),
+                        greaterThan(0));
+                assertThat("Method enters and method exits must match in numbers " +
+                                "for thread '" + thdName + "'",
+                        (Integer) events.get(Events.AnyEvt.Which.METHODENTER),
+                        lessThanOrEqualTo((Integer) events.get(Events.AnyEvt.Which.METHODEXIT)));
+            }
+        }
     }
 
 
@@ -60,30 +66,46 @@ public class CallsIntegration {
      */
     @Test
     public void callStructureMatches() {
-        final HashMap<String, Stack<Events.MethodEnterEvt.Reader>> callStacks = new HashMap<>();
-        final TraceFileIterator it = getTraceFileIterator();
+        class IndexedEnter {
+            private final long idx;
+            private final Events.MethodEnterEvt.Reader enter;
+
+            private IndexedEnter(final long idx, final Events.MethodEnterEvt.Reader enter) {
+                this.idx = idx;
+                this.enter = enter;
+            }
+        };
+
+        final HashMap<String, Stack<IndexedEnter>> callStacks = new HashMap<>();
+        final TraceFileIterator it = getTraceFileIterator(runResult.getTracefile());
+        long cnt = 0;
+
         while (it.hasNext()) {
             final Events.AnyEvt.Reader evt = it.next();
+            cnt++;
 
             if (evt.isMethodenter()) {
                 final Events.MethodEnterEvt.Reader methodenter = evt.getMethodenter();
                 final String thdName = methodenter.getThreadName().toString();
-                if (! callStacks.containsKey(thdName)) {
+                if (!callStacks.containsKey(thdName)) {
                     callStacks.put(thdName,
                             new Stack<>());
                 }
+                callStacks.get(thdName).push(new IndexedEnter(cnt, methodenter));
 
-                callStacks.get(thdName).push(methodenter);
             } else if (evt.isMethodexit()) {
                 final Events.MethodExitEvt.Reader methodexit = evt.getMethodexit();
                 final String thdName = methodexit.getThreadName().toString();
-
                 assertThat(callStacks, hasKey(thdName));
-                final Events.MethodEnterEvt.Reader poppedFrame =
-                        callStacks.get(thdName).pop();
+                final IndexedEnter poppedFrame = callStacks.get(thdName).pop();
 
-                assertThat("popped frame's name must match last entered frame",
-                        poppedFrame.getName().toString(),
+                assertThat("popped frame's (#" + cnt
+                                + ") name must match last entered frame (#"
+                                + poppedFrame.idx + ") in thread '"
+                                + thdName + "'\n"
+                                + "last entered frame: "
+                                + EventsUtil.methodEnterToString(poppedFrame.enter),
+                        poppedFrame.enter.getName().toString(),
                         is(methodexit.getName().toString()));
             }
         }
@@ -91,22 +113,35 @@ public class CallsIntegration {
 
     @Test
     public void callsInRightOrder() {
-        final TraceFileIterator it = getTraceFileIterator();
+        final TraceFileIterator it = getTraceFileIterator(this.runResult.getTracefile());
+        assertThat("MethodCalls::main class call must be called",
+                seekCall(it, "MethodCalls", "main"), is(true));
+        assertThat("System.out.println must be called",
+                seekCall(it, "PrintStream", "println"), is(true));
+        assertThat("MethodCalls::Foo class call must be called",
+                seekCall(it, "MethodCalls", "Foo"), is(true));
+        assertThat("MethodCalls::Bar class call must be called",
+                seekCall(it, "MethodCalls", "Bar"), is(true));
+    }
+
+    private boolean seekCall(final TraceFileIterator it, final String cname, final String mname) {
         boolean found = false;
         while (it.hasNext()) {
             final Events.AnyEvt.Reader next = it.next();
-            if (next.isMethodenter() &&
-                    next.getMethodenter().getCalleeclass().toString().endsWith("MethodCalls")) {
-                found = true;
-                break;
+            if (next.isMethodenter()) {
+                final Events.MethodEnterEvt.Reader methodenter = next.getMethodenter();
+                if (methodenter.getCalleeclass().toString().endsWith(cname) &&
+                        methodenter.getName().toString().equals(mname)) {
+                    found = true;
+                    break;
+                }
             }
         }
-
-        assertThat("the MethodCalls class call must be instrumented",
-                found, is(true));
+        return found;
     }
 
-    private TraceFileIterator getTraceFileIterator() {
-        return new TraceFileIterator(this.runResult.getTracefile().toFile());
+    private static TraceFileIterator getTraceFileIterator(
+            Path tracefile) {
+        return new TraceFileIterator(tracefile.toFile());
     }
 }

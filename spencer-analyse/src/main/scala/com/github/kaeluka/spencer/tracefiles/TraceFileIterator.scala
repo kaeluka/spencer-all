@@ -11,7 +11,7 @@ import org.capnproto.Serialize
   * Created by stebr742 on 2016-07-01.
   */
 class TraceFileIterator(val channel : ReadableByteChannel,
-                        var nxtVal : AnyEvt.Reader) extends Iterator[AnyEvt.Reader] {
+                        var nxtVal : AnyEvt.Reader) extends java.util.Iterator[AnyEvt.Reader] {
 
   def this(channel : ReadableByteChannel) {
     this(channel, TraceFileIterator.getNxtOrNull(channel))
@@ -20,7 +20,6 @@ class TraceFileIterator(val channel : ReadableByteChannel,
   def this(file : File) {
     this(new FileInputStream(file).getChannel)
   }
-
 
   def next : AnyEvt.Reader = {
     val ret = this.nxtVal
@@ -40,6 +39,7 @@ object TraceFileIterator {
       Serialize.read(channel).getRoot(Events.AnyEvt.factory)
     } catch {
       case ex: IOException =>
+        channel.close()
         null
     }
   }

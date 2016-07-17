@@ -1,14 +1,8 @@
 package com.github.kaeluka.spencer.analysis
-import java.util
-import java.util.concurrent.ConcurrentHashMap
-
-import com.datastax.driver.core.{ResultSet, Row, Session}
 import com.github.kaeluka.spencer.DBLoader
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
 import org.apache.spark.SparkContext
 import com.datastax.spark.connector._
-import com.datastax.spark.connector.rdd.CassandraTableScanRDD
-import org.apache.spark.rdd.RDD
 
 object SanityCheck extends SpencerDBAnalyser {
   override def setUp(db: SpencerDB): Unit = { }

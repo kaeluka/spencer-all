@@ -1000,6 +1000,14 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                                 + "[Ljava/lang/Object;"  // args
                                 +")V" // thread
                         , false);
+                super.visitLdcInsn("<init>");
+                this.visitLdcInsn(Type.getType(arrayType).getInternalName().replace('.','/'));
+                super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
+                        "methodExit",
+                        "(Ljava/lang/String;"          //mname
+                                +"Ljava/lang/String;" //cname
+                                +")V",
+                        false);
             }
         }
 
@@ -1040,6 +1048,18 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                                     + "[Ljava/lang/Object;"  // args
                                     +")V" // thread
                             , false);
+                    super.visitLdcInsn("<init>");
+                    if (isArrayType(type)) {
+                        this.visitLdcInsn(Type.getType("["+type+";").getInternalName().replace('.','/'));
+                    } else {
+                        this.visitLdcInsn(Type.getType("[L"+type+";").getInternalName().replace('.','/'));
+                    }
+                    super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
+                            "methodExit",
+                            "(Ljava/lang/String;"          //mname
+                                    +"Ljava/lang/String;" //cname
+                                    +")V",
+                            false);
             }
         }
     }

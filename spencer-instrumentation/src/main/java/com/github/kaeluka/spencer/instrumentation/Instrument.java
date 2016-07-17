@@ -56,38 +56,41 @@ public class Instrument {
 	}
 
 	public static boolean isInterface(final byte[] byteCode) {
-        return (new ClassReader(byteCode).getAccess() | Opcodes.ACC_INTERFACE) != 0;
+        return (new ClassReader(byteCode).getAccess() & Opcodes.ACC_INTERFACE) != 0;
 	}
 
-	public static byte[] transform(byte[] byteCode, final PrintStream out) {
-		final ClassReader classreader = new ClassReader(byteCode);
-		final String className = classreader.getClassName();
+	private static void println(final PrintStream out, final String msg) {
+		if (out != null) {
+			println(out, msg);
+		}
+	}
+
+	public static byte[] transform(byte[] byteCode, final PrintStream out,
+								   final ClassHierarchy hierarchy) {
+		final ClassReader classReader = new ClassReader(byteCode);
+		final String className = classReader.getClassName();
 
         if (!Instrument.enabled) {
-            out.println("returning original bytecode (disabled)");
+            println(out, "returning original bytecode (disabled)");
             return byteCode;
         }
 
-        if (Util.isClassNameBlacklisted(className)) {
-            out.println("returning original bytecode (class "+className+" blacklisted)");
+		if (Util.isClassNameBlacklisted(className)) {
+            println(out, "returning original bytecode (class "+className+" blacklisted)");
             return byteCode;
         }
 
-//        try {
-            final ClassWriter classwriter = new ClassWriter(classreader, ClassWriter.COMPUTE_FRAMES);
-            final ClassVisitor checkingwriter = Instrument.checking ? check(classwriter)
-                    : classwriter;
-            final ClassVisitor tracingwriter = Instrument.tracing ? trace(checkingwriter, className) : checkingwriter;
-            classreader.accept(new InstrumentationVisitor(tracingwriter),
-                    ClassReader.EXPAND_FRAMES);
-            out.println("returning transformed class for "+className);
-            return classwriter.toByteArray();
-//        }
-//        catch (RuntimeException ex) {
-//            out.println("returning original bytecode (exception: "+ex.getMessage()+")");
-//            logError(className, ex);
-//            return byteCode;
-//        }
+		hierarchy.registerClass(byteCode);
+
+		final ClassWriter classwriter = new HierarchyClassWriter(classReader,
+				hierarchy);
+		final ClassVisitor checkingwriter = Instrument.checking ? check(classwriter)
+				: classwriter;
+		final ClassVisitor tracingwriter = Instrument.tracing ? trace(checkingwriter, className) : checkingwriter;
+		classReader.accept(new InstrumentationVisitor(tracingwriter),
+				ClassReader.EXPAND_FRAMES);
+		println(out, "returning transformed class for "+className);
+		return classwriter.toByteArray();
 	}
 
 	private static boolean logError(final String className, RuntimeException ex) {

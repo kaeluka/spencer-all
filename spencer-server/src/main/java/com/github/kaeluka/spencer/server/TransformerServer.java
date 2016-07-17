@@ -1,5 +1,6 @@
 package com.github.kaeluka.spencer.server;
 
+import com.github.kaeluka.spencer.instrumentation.ClassHierarchy;
 import org.apache.commons.io.FileUtils;
 import com.github.kaeluka.spencer.instrumentation.Instrument;
 import com.github.kaeluka.spencer.instrumentation.Util;
@@ -15,7 +16,8 @@ public class TransformerServer {
     private static ServerSocket ss = null;
     private static volatile boolean tearDown = false;
     private static volatile Semaphore running = new Semaphore(0);
-    private static final PrintStream out = System.out;
+    private static final PrintStream out = null;
+    private static ClassHierarchy hierarchy = new ClassHierarchy();
 
     static {
         try {
@@ -26,11 +28,13 @@ public class TransformerServer {
             System.exit(1);
         }
     }
+    
+    private static void println(final PrintStream out, final String msg) {
+        if (out != null) {
+            out.println(msg);
+        }
+    }
 
-    /**
-     * @param args
-     * @throws ClassNotFoundException
-     */
     public static void main(String[] args) throws ClassNotFoundException {
         new TransformerServer();
     }
@@ -54,7 +58,7 @@ public class TransformerServer {
 
         final File classDumpFile = new File(dumpFileName);
 
-//		this.out.println("dumping class data to file "+classDumpFile.getAbsolutePath());
+//		println(this.out, "dumping class data to file "+classDumpFile.getAbsolutePath());
 
         if (!classDumpFile.getParentFile().exists()) {
             classDumpFile.getParentFile().mkdirs();
@@ -70,21 +74,21 @@ public class TransformerServer {
     private static void sendByteArray(byte[] data) throws IOException {
         Socket socket = TransformerServer.ss.accept();
         DataOutputStream outstream = new DataOutputStream(socket.getOutputStream());
-        //this.out.println("length of new class is "+data.length);
+        //println(this.out, "length of new class is "+data.length);
         outstream.writeLong(data.length);
-        //this.out.println("wrote length, sending data");
+        //println(this.out, "wrote length, sending data");
         outstream.write(data);
         outstream.flush();
         outstream.close();
-        //this.out.println("sent data");
+        //println(this.out, "sent data");
     }
 
     private static byte[] receiveByteArray() throws IOException {
         Socket socket = TransformerServer.ss.accept();
-//		this.out.println("Accepted connection");
+//		println(this.out, "Accepted connection");
         DataInputStream instream = new DataInputStream(socket.getInputStream());
         long len = readInt32(instream);
-//		this.out.println("length of original class is "+len);
+//		println(this.out, "length of original class is "+len);
         byte[] msgarr = new byte[(int)len];
 
         int actualLen = 0;
@@ -92,7 +96,7 @@ public class TransformerServer {
             final int readLen = instream.read(msgarr, actualLen, (int)(len-actualLen));
             if (readLen > 0) {
                 actualLen += readLen;
-//				this.out.println("..."+actualLen);
+//				println(this.out, "..."+actualLen);
             }
         } while (actualLen != len);
 
@@ -105,7 +109,7 @@ public class TransformerServer {
             int by = instream.readUnsignedByte();
             assert(by >= 0);
             len += by << (i*8);
-//			this.out.println(by+" "+len);
+//			println(this.out, by+" "+len);
         }
         return len;
     }
@@ -125,10 +129,10 @@ public class TransformerServer {
             TransformerServer.running.release();
             for(;;) {
                 if (TransformerServer.tearDown) {
-                    this.out.println("stopping transformer server");
+                    println(this.out, "stopping transformer server");
                     System.exit(0);
                 }
-//                this.out.println("Listening for connection from instrumentation agent.. ");
+//                println(this.out, "Listening for connection from instrumentation agent.. ");
                 byte[] recvd = null;
                 try {
                     try {
@@ -138,20 +142,22 @@ public class TransformerServer {
                         // server can check whether it has been killed
                         continue;
                     }
-                    this.out.println("received class "+Instrument.getClassName(recvd));
+                    println(this.out, "received class "+Instrument.getClassName(recvd));
                     dumpClassDataToFile(recvd, "input");
 
                     byte[] transformed = recvd;
                     try {
-                        transformed = Instrument.transform(recvd, out);
+                        transformed = Instrument.transform(recvd,
+                                out,
+                                TransformerServer.hierarchy);
                     } catch (Exception ex) {
                         ex.printStackTrace();
                     }
                     if (! Arrays.equals(recvd, transformed)) {
-                        this.out.println("transformed class");
+                        println(TransformerServer.out, "transformed class");
                         dumpClassDataToFile(transformed, "output");
                     } else {
-                        this.out.println("skipping class");
+                        println(TransformerServer.out, "skipping class");
                     }
                     sendByteArray(transformed);
 
@@ -159,7 +165,7 @@ public class TransformerServer {
                     ex.printStackTrace();
                     File errorLog = new File("log/"+Instrument.getClassName(recvd)+".error");
                     if (!errorLog.exists()) {
-                        errorLog.createNewFile();
+                        assert errorLog.createNewFile();
                     }
                     FileOutputStream errorStream = new FileOutputStream(errorLog);
                     if (ex.getMessage()!=null) {
@@ -176,7 +182,6 @@ public class TransformerServer {
             }
         } catch (IOException e) {
             e.printStackTrace();
-            return;
         }
     }
 }

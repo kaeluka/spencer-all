@@ -3,9 +3,12 @@ package com.github.kaeluka.spencer.tracefiles
 import java.io.{File, FileInputStream}
 
 import com.datastax.driver.core._
-import com.github.kaeluka.spencer.Events
+import com.datastax.spark.connector.CassandraRow
+import com.github.kaeluka.spencer.{DBLoader, Events}
 import com.github.kaeluka.spencer.Events.{AnyEvt, ReadModifyEvt}
 import com.google.common.base.Stopwatch
+import org.apache.spark.SparkContext
+import com.datastax.spark.connector._
 
 /**
   * Created by stebr742 on 2016-07-01.
@@ -15,32 +18,30 @@ class SpencerDB(val keyspace: String) {
   var insertEdgeStatement : PreparedStatement = null
   var insertObjectStatement : PreparedStatement = null
   var session : Session = null
+  val saveOrigin = false
 
 
   def handleEvent(evt: AnyEvt.Reader, idx: Int) {
     try {
       evt.which() match {
-        case AnyEvt.Which.FIELDLOAD => {
+        case AnyEvt.Which.FIELDLOAD =>
           val fieldload = evt.getFieldload
           insertUse(fieldload.getCallertag, fieldload.getHoldertag, "fieldload", idx, EventsUtil.messageToString(evt))
-        }
-        case AnyEvt.Which.FIELDSTORE => {
+        case AnyEvt.Which.FIELDSTORE =>
           val fstore = evt.getFieldstore
           insertEdge(fstore.getCallertag, fstore.getHoldertag, "field", idx, EventsUtil.messageToString(evt))
-        }
-        case AnyEvt.Which.METHODENTER => {
+        case AnyEvt.Which.METHODENTER =>
           val menter = evt.getMethodenter
           if (menter.getName.toString == "<init>") {
-//            if (menter.getCallsiteline != -1) {
-//              println("inserting: " + menter.getCalleetag)
-//            }
+            //            if (menter.getCallsiteline != -1) {
+            //              println("inserting: " + menter.getCalleetag)
+            //            }
             insertObject(menter.getCalleetag, menter.getCalleeclass.toString, menter.getCallsitefile.toString, menter.getCallsiteline, EventsUtil.messageToString(evt))
           }
-        }
         case AnyEvt.Which.METHODEXIT => () //???
         case AnyEvt.Which.OBJALLOC => () //???
         case AnyEvt.Which.OBJFREE => () //???
-        case AnyEvt.Which.READMODIFY => {
+        case AnyEvt.Which.READMODIFY =>
 
           val readmodify: ReadModifyEvt.Reader = evt.getReadmodify
           val caller: Long = readmodify.getCallertag
@@ -51,33 +52,29 @@ class SpencerDB(val keyspace: String) {
             "read"
           }
           insertUse(caller, callee, kind, idx, EventsUtil.messageToString(evt))
-          //        val readmodify = evt.getReadmodify
-          //        insertEdge(session, readmodify.getCallertag, readmodify.getCalleetag,
-          //          if (readmodify.getIsModify) { "modify" } else { "read" }, idx, idx+1)
-        }
-        case AnyEvt.Which.VARLOAD => {
-          //        val varload: Events.VarLoadEvt.Reader = evt.getVarload
-          //        insertEdge(session, varload.getCallertag, varload.getVal, "varload", idx, idx+1)
-        }
-        case AnyEvt.Which.VARSTORE => {
+        //        val readmodify = evt.getReadmodify
+        //        insertEdge(session, readmodify.getCallertag, readmodify.getCalleetag,
+        //          if (readmodify.getIsModify) { "modify" } else { "read" }, idx, idx+1)
+        case AnyEvt.Which.VARLOAD =>
+        //        val varload: Events.VarLoadEvt.Reader = evt.getVarload
+        //        insertEdge(session, varload.getCallertag, varload.getVal, "varload", idx, idx+1)
+        case AnyEvt.Which.VARSTORE =>
           val varstore: Events.VarLoadEvt.Reader = evt.getVarload
           insertEdge(varstore.getCallertag, varstore.getVal, "var", idx, EventsUtil.messageToString(evt))
-        }
         case other =>
           throw new IllegalStateException(
             "do not know how to handle event kind " + other)
       }
     } catch {
-      case e: IllegalStateException => {
+      case e: IllegalStateException =>
         val exception: IllegalStateException = new IllegalStateException("cause was: "+EventsUtil.messageToString(evt), e)
-      }
     }
   }
 
   def insertObject(tag: Long, klass: String, allocationSiteFile: String, allocationSiteLine: Long, comment: String = "none") {
-//    if (! session.execute("SELECT id FROM "+this.keyspace+".objects WHERE id = "+tag).isExhausted) {
-//      throw new IllegalStateException("already have object #"+tag);
-//    }
+    //    if (! session.execute("SELECT id FROM "+this.keyspace+".objects WHERE id = "+tag).isExhausted) {
+    //      throw new IllegalStateException("already have object #"+tag);
+    //    }
     //      session.executeAsync("INSERT INTO objects(id, klass, comment) VALUES("
     //        + tag + ", '"
     //        + klass + "', '"
@@ -87,7 +84,7 @@ class SpencerDB(val keyspace: String) {
       klass,
       allocationSiteFile,
       allocationSiteLine : java.lang.Long,
-      comment))
+      if (saveOrigin) comment else null))
   }
 
   def insertEdge(caller: Long, callee: Long, kind: String, start: Long, comment: String = "none") {
@@ -97,16 +94,53 @@ class SpencerDB(val keyspace: String) {
       kind,
       start  : java.lang.Long,
       new java.lang.Long(-1),
-      comment))
+      if (saveOrigin) comment else null))
   }
 
   def insertUse(caller: Long, callee: Long, kind: String, idx: Long, comment: String = "none") {
+
     session.executeAsync(this.insertUseStatement.bind(
       caller : java.lang.Long,
       callee : java.lang.Long,
       kind,
       idx : java.lang.Long,
-      comment))
+      if (saveOrigin) comment else null))
+  }
+
+  def getLastObjUsages(): Unit = {
+    val sc: SparkContext = DBLoader.startSpark()
+
+    val watch: Stopwatch = Stopwatch.createStarted()
+
+    val lastUsages = sc.cassandraTable(this.session.getLoggedKeyspace, "uses")
+      .select("idx", "callee")
+      .groupBy(_.getLong("callee"))
+      .map(
+        { case (_, rows) =>
+          (rows.minBy(_.getLong("idx")), rows.maxBy(_.getLong("idx")))}
+      ).collect()
+
+    watch.stop()
+
+    println("computing last usages took "+watch)
+
+    watch.reset()
+    watch.start()
+    for (lastUsage <- lastUsages) {
+      lastUsage match {
+        case (fst, lst) =>
+          assert(fst.getLong("callee") == lst.getLong("callee"))
+          this.session.execute(
+            "  UPDATE objects " +
+              "SET " +
+              "  firstUsage = " + fst.getLong("idx") + ", " +
+              "  lastUsage  = " + lst.getLong("idx") +
+              "WHERE id = " + fst.getLong("callee"))
+      }
+    }
+    watch.stop()
+    println("updating last usages took "+watch)
+    sc.stop()
   }
 
   def loadFrom(f : File) {
@@ -115,28 +149,16 @@ class SpencerDB(val keyspace: String) {
 
     this.connect(true)
 
-    val events: TraceFileIterator = new TraceFileIterator(new FileInputStream(f).getChannel)
+    val events = new TraceFile(f).iterator
     var i = 1
-    events.foreach(
-      evt => {
-        handleEvent(evt, i)
-        i += 1
-      }
-    )
+    while (events.hasNext) {
+      val evt: AnyEvt.Reader = events.next
+      handleEvent(evt, i)
+      i += 1
+    }
     println("loading "+(i-1)+" events took "+stopwatch.stop())
-
-    //    printObjectsTable(session)
+    getLastObjUsages()
   }
-
-  //  def printObjectsTable(session: Session): Unit = {
-  //    println("################ querying data....")
-  //    val res: ResultSet = session.execute("SELECT * FROM spencerTest.objects;")
-  //    val iter = res.iterator()
-  //    while (!res.isFullyFetched) {
-  //      res.fetchMoreResults()
-  //      println("############### found: " + iter.next());
-  //    }
-  //  }
 
   def connect(overwrite: Boolean = false): Unit = {
     val cluster: Cluster =
@@ -170,8 +192,10 @@ class SpencerDB(val keyspace: String) {
       "klass text, " +
       "allocationSiteFile text, " +
       "allocationSiteLine bigint, " +
+      "firstUsage bigint, " +
+      "lastUsage bigint, " +
       "comment text, " +
-      "PRIMARY KEY(id, klass)) ;")
+      "PRIMARY KEY(id)) ;")
 
     session.execute("CREATE TABLE "+keyspace+".refs(" +
       "caller bigint, callee bigint, " +
@@ -182,7 +206,7 @@ class SpencerDB(val keyspace: String) {
 
     session.execute("CREATE TABLE "+keyspace+".uses(" +
       "caller bigint, callee bigint, kind text, idx bigint, comment text, " +
-      "PRIMARY KEY(caller)" +
+      "PRIMARY KEY(caller, callee, idx)" +
       ");")
 
     session.close()

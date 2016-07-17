@@ -106,7 +106,7 @@ public class RuntimeTransformer {
                                     originalDestStream.write(originalByteCode);
 
                                     if (e.getName().endsWith(".class")) {
-                                        final byte[] transformedByteCode = Instrument.transform(originalByteCode);
+                                        final byte[] transformedByteCode = Instrument.transform(originalByteCode, System.out);
                                         if (Arrays.equals(originalByteCode, transformedByteCode)) {
                                             if (!Instrument.isInterface(originalByteCode)) {
                                                 throw new IllegalStateException("bytecode for "+e.getName()+" not changed");
@@ -114,14 +114,12 @@ public class RuntimeTransformer {
                                         } else {
                                             final File transformedFile = new File(dir+"/output/"+e.getName());
                                             transformedFile.getParentFile().mkdirs();
-                                            transformedFile.createNewFile();
+                                            assert transformedFile.createNewFile();
                                             FileOutputStream transformedDestStream = new FileOutputStream(transformedFile);
                                             transformedDestStream.write(transformedByteCode);
                                             transformedDestStream.close();
 //										instrumented++;
                                         }
-                                    } else {
-                                        // not a class file -- keeping it as-is!
                                     }
                                     originalDestStream.close();
                                 }

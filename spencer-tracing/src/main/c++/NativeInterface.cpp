@@ -26,24 +26,8 @@ using namespace std;
 int capnproto_fd;
 #define SOCKET_PORT "1345"
 
-std::string getTracefileName() {
-  /*
-    std::shared_ptr<FILE> pipe(popen("./getBenchmarkDrive.sh", "r"), pclose);
-    if (!pipe) return "ERROR";
-    char buffer[128];
-    std::string result = "";
-    while (!feof(pipe.get())) {
-      if (fgets(buffer, 128, pipe.get()) != NULL) {
-        result += buffer;
-      }
-    }
-    result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
-    return result+"/prototracefile.log";
-  */
-  return "./tracefile";
-}
-
-std::string tracefilename = getTracefileName();
+std::string tracefilename = "none";
+bool traceToDisk = false;
 
 // global ref to jvmti enviroment
 static jvmtiEnv *g_jvmti = NULL;
@@ -77,16 +61,20 @@ string kindToStr(jint v) {
 static jrawMonitorID g_lock;
 
 std::string getThreadName() {
-  return "a thread";
-  //  jvmtiThreadInfo info;
-  //  jvmtiError err = g_jvmti->GetThreadInfo(NULL, &info);
-  //  if (err == JVMTI_ERROR_WRONG_PHASE) {
-  //    return "SOME_JVM_THREAD";
-  //  } else {
-  //    std::string ret(info.name);
-  //    g_jvmti->Deallocate((unsigned char*)info.name);
-  //    return ret;
-  //  }
+  // return "a thread";
+  jvmtiThreadInfo info;
+  jvmtiError err = g_jvmti->GetThreadInfo(NULL, &info);
+  if (err == JVMTI_ERROR_WRONG_PHASE) {
+    return "<unknown thread>";
+  } else {
+    std::string ret(info.name);
+    g_jvmti->Deallocate((unsigned char*)info.name);
+    if (ret == "") {
+      return "<unnamed thread>";
+    } else {
+      return ret;
+    }
+  }
 }
 
 std::string toCanonicalForm(std::string typ) {
@@ -107,7 +95,9 @@ void doFramePop(std::string mname) {
   ASSERT(std::string("") != msgbuilder.getName().cStr());
   anybuilder.setMethodexit(msgbuilder.asReader());
 
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  if (traceToDisk) {
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
 }
 
 bool isInLivePhase() {
@@ -498,7 +488,7 @@ std::string getTypeForTag(JNIEnv *jni_env, jlong tag) {
                               &obj_res,
                               NULL);
   if (count == 0) {
-    return "<unknown>";
+    return "<unknown type>";
   }
 
   ASSERT_EQ(count, 1);
@@ -670,7 +660,9 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
     msgbuilder.setThreadName(threadName);
     anybuilder.setMethodenter(msgbuilder.asReader());
 
-    capnp::writeMessageToFd(capnproto_fd, outermessage);
+    if (traceToDisk) {
+      capnp::writeMessageToFd(capnproto_fd, outermessage);
+    }
   }
 
   {
@@ -702,7 +694,9 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
           msgbuilder.setVar(i);
 
           anybuilder.setVarstore(msgbuilder.asReader());
-          capnp::writeMessageToFd(capnproto_fd, outermessage);
+          if (traceToDisk) {
+            capnp::writeMessageToFd(capnproto_fd, outermessage);
+          }
         }
         DBG("emitting args done");
       }
@@ -805,7 +799,9 @@ void handleStoreFieldA(
 
   anybuilder.setFieldstore(msgbuilder.asReader());
 
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  if (traceToDisk) {
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
 #endif // ifdef ENABLED
 }
 
@@ -863,7 +859,9 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
   msgbuilder.setThreadName(getThreadName());
 
   anybuilder.setVarstore(msgbuilder.asReader());
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  if (traceToDisk) {
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
   DBG("storeVar done");
 #endif // ifdef ENABLED
 }
@@ -906,7 +904,9 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
   msgbuilder.setThreadName(getThreadName());
   anybuilder.setVarload(msgbuilder.asReader());
 
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  if (traceToDisk) {
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
 #endif // ifdef ENABLED
 }
 
@@ -939,7 +939,9 @@ void handleModify(JNIEnv *env, jclass native_interface,
 
   anybuilder.setReadmodify(msgbuilder.asReader());
 
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  if (traceToDisk) {
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
   DBG("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
 #endif // ifdef ENABLED
@@ -993,7 +995,9 @@ void handleRead(JNIEnv *env, jclass native_interface,
 
   anybuilder.setReadmodify(msgbuilder.asReader());
 
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  if (traceToDisk) {
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
 #endif // ifdef ENABLED
 }
 
@@ -1040,7 +1044,9 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
 
   anybuilder.setFieldload(msgbuilder.asReader());
 
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  if (traceToDisk) {
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
   DBG("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 #endif // ifdef ENABLED
 }
@@ -1084,7 +1090,9 @@ void JNICALL cbObjectFree(jvmtiEnv *env, jlong tag) {
 
   anybuilder.setObjfree(msgbuilder.asReader());
 
-  capnp::writeMessageToFd(capnproto_fd, outermessage);
+  if (traceToDisk) {
+    capnp::writeMessageToFd(capnproto_fd, outermessage);
+  }
 #endif // ifdef ENABLED
 }
 
@@ -1224,11 +1232,13 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
         msgbuilder.setCalleetag(*it);
         msgbuilder.setCallsitefile("<jvmInternals>");
         msgbuilder.setCallsiteline(-1);
-        msgbuilder.setThreadName("JVM_Thread<?>");
+        msgbuilder.setThreadName("<unknown thread>");
 
         anybuilder.setMethodenter(msgbuilder.asReader());
 
-        capnp::writeMessageToFd(capnproto_fd, outermessage);
+        if (traceToDisk) {
+          capnp::writeMessageToFd(capnproto_fd, outermessage);
+        }
       }
 
       {
@@ -1238,11 +1248,13 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
         MethodExitEvt::Builder msgbuilder =
           innermessage.initRoot<MethodExitEvt>();
         msgbuilder.setName("<init>");
-        msgbuilder.setThreadName("JVM_Thread<?>");
+        msgbuilder.setThreadName("<unknown thread>");
 
         anybuilder.setMethodexit(msgbuilder.asReader());
 
-        capnp::writeMessageToFd(capnproto_fd, outermessage);
+        if (traceToDisk) {
+          capnp::writeMessageToFd(capnproto_fd, outermessage);
+        }
       }
     }
   }
@@ -1263,11 +1275,13 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
       msgbuilder.setCalleetag(*it);
       msgbuilder.setCallsitefile("<jvmInternals>");
       msgbuilder.setCallsiteline(-1);
-      msgbuilder.setThreadName("JVM_Thread<?>");
+      msgbuilder.setThreadName("<unknown thread>");
 
       anybuilder.setMethodenter(msgbuilder.asReader());
 
-      capnp::writeMessageToFd(capnproto_fd, outermessage);
+      if (traceToDisk) {
+        capnp::writeMessageToFd(capnproto_fd, outermessage);
+      }
     }
   }
 
@@ -1306,7 +1320,9 @@ void JNICALL VMDeath(jvmtiEnv *jvmti_env, JNIEnv *jni_env) {
   #ifdef ENABLED
   DBG("VMDeath");
   g_dead = true;
-  close(capnproto_fd);
+  if (traceToDisk) {
+    close(capnproto_fd);
+  }
 #endif // ifdef ENABLED
 }
 
@@ -1327,7 +1343,10 @@ void parse_options(std::string options) {
       tracefilename = rest;
     }
   }
-  std::cout << "dumping output to file " << tracefilename << std::endl;
+
+  if (tracefilename != "none") {
+    traceToDisk = true;
+  }
 }
 
 /*
@@ -1349,7 +1368,7 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   {
     onlyDuringLivePhaseMatch.push_back("java/io/File");
     onlyDuringLivePhaseMatch.push_back("java/io/FileOutputStream");
-    onlyDuringLivePhaseMatch.push_back("java/io/PrintStream");
+    //onlyDuringLivePhaseMatch.push_back("java/io/PrintStream");
     onlyDuringLivePhaseMatch.push_back("java/lang/AbstractStringBuilder");
     onlyDuringLivePhaseMatch.push_back("java/lang/StringBuilder");
     onlyDuringLivePhaseMatch.push_back("java/lang/Class");
@@ -1379,19 +1398,18 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
   jvmtiError error;
   jint res;
 
-  //  markClassFilesAsInstrumented("../transformer/instrumented_java_rt/output");
-
   if (options != NULL) {
     parse_options(options);
   }
-  // cerr << "agent started\n";
-  // Get jvmti env
-  capnproto_fd = open(tracefilename.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
-                      S_IRUSR | S_IWUSR);
-  if (capnproto_fd == -1) {
-    ERR("could not open log file '" << tracefilename << "'");
+  if (traceToDisk) {
+    capnproto_fd = open(tracefilename.c_str(), O_CREAT | O_WRONLY | O_TRUNC,
+                        S_IRUSR | S_IWUSR);
+    if (capnproto_fd == -1) {
+      ERR("could not open log file '" << tracefilename << "'");
+    }
   }
 
+  // Get jvmti env
   res = vm->GetEnv((void **)&g_jvmti, JVMTI_VERSION);
   if (res != JNI_OK) {
     printf("ERROR GETTING JVMTI");

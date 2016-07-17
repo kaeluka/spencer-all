@@ -21,14 +21,24 @@ public class Main {
 
     private static Options initSpencerOptions() {
         final Options options = new Options();
-        options.addOption(
-                Option
-                        .builder("tracedir")
-                        .hasArg()
-                        .argName("path/to/dir")
-                        .optionalArg(false)
-                        .desc("The directory to write to.")
-                        .build());
+
+        final OptionGroup ioOptions = new OptionGroup();
+
+        ioOptions.addOption(Option
+                .builder("tracedir")
+                .hasArg()
+                .argName("path/to/dir")
+                .optionalArg(false)
+                .desc("The directory to write to (default: /tmp).")
+                .build());
+
+        ioOptions.addOption(Option
+                .builder("notrace")
+                .desc("For debugging, disable tracing to disk.")
+                .build());
+
+        options.addOptionGroup(ioOptions);
+
         options.addOption(
                 Option
                         .builder("verbose")
@@ -39,6 +49,8 @@ public class Main {
                         .builder("help")
                         .desc("Display this help.")
                         .build());
+
+
 
         return options;
     }
@@ -68,7 +80,6 @@ public class Main {
         TransformerServer.awaitRunning();
 
         final Process process = getProcess(args, spencerArgs);
-        System.out.println("waiting");
         final int exitStatus = process.waitFor();
 
         TransformerServer.tearDown();
@@ -119,7 +130,10 @@ public class Main {
             if (tracedir != null) {
                 final File dir = new File(tracedir);
                 if ((! dir.exists()) || (! dir.isDirectory())) {
-                    System.err.println("ERROR: trace directory "+tracedir+" does not exist or is no directory");
+                    System.err.println(
+                            "ERROR: trace directory "
+                                    +tracedir
+                                    +" does not exist or is no directory");
                     System.exit(1);
                 }
             }
@@ -167,14 +181,14 @@ public class Main {
         java.util.Properties p = new Properties();
         p.load(is);
 
-        logIfVerbose("===============", spencerArgs);
-        final List keys = new LinkedList();
-        keys.addAll(p.keySet());
-        keys.sort(Comparator.naturalOrder());
-        for (Object key : keys) {
-            logIfVerbose(key + "\t" + p.getProperty((String) key), spencerArgs);
-        }
-        logIfVerbose("===============", spencerArgs);
+//        logIfVerbose("===============", spencerArgs);
+//        final List keys = new LinkedList();
+//        keys.addAll(p.keySet());
+//        keys.sort(Comparator.naturalOrder());
+//        for (Object key : keys) {
+//            logIfVerbose(key + "\t" + p.getProperty((String) key), spencerArgs);
+//        }
+//        logIfVerbose("===============", spencerArgs);
 
         final String aol = p.getProperty("nar.aol");
         final String version="0.1.3-SNAPSHOT";
@@ -192,11 +206,20 @@ public class Main {
         if (!tempAgentFile.exists()) {
             throw new IllegalStateException("could not find agent binary: "+tempAgentFile);
         }
-        final String tracedir = spencerArgs.getOptionValue("tracedir") == null ?
-                "/tmp" :
-                spencerArgs.getOptionValue("tracedir");
 
-        argStrings.add("-agentpath:" + tempAgentFile.getAbsolutePath() + "=tracefile="+tracedir+"/tracefile");
+        final String tracedirOpt = spencerArgs.getOptionValue("tracedir");
+        if (spencerArgs.hasOption("notrace")) {
+            argStrings.add("-agentpath:" + tempAgentFile.getAbsolutePath() + "=tracefile=none");
+        } else {
+            final String tracedir = (tracedirOpt == null) ?
+                    "/tmp" :
+                    tracedirOpt;
+            argStrings.add("-agentpath:"
+                    + tempAgentFile.getAbsolutePath()
+                    + "=tracefile="+tracedir+"/tracefile");
+        }
+
+        argStrings.add("-Xverify:none");
 
         for (String arg : jvmArgs) {
             argStrings.addAll(Arrays.asList(arg.split(" ")));

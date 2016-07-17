@@ -11,20 +11,6 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object DBLoader {
 
-//  def getGraph(sc: SparkContext): Graph[(String, String), String] = {
-//    val vtx = sc.parallelize(Array(
-//      (3L, ("rxin", "student")),
-//      (7L, ("jgonzal", "postdoc")),
-//      (5L, ("franklin", "prof")),
-//      (2L, ("istoica", "prof"))))
-//    val edg = sc.parallelize(Array(
-//      Edge(3L, 7L, "collab"),
-//      Edge(5L, 3L, "advisor"),
-//      Edge(2L, 5L, "colleague"),
-//      Edge(5L, 7L, "pi")))
-//    Graph(vtx, edg)
-//  }
-
   def startSpark(): SparkContext = {
     val conf = new SparkConf()
       .setAppName("spencer-analyse")
@@ -36,32 +22,19 @@ object DBLoader {
 
   def main(args: Array[String]) {
 
+    if (args.length != 1) {
+      sys.error("usage: java "+this.getClass.getName+" path/to/tracefile")
+    }
+
     println("spencer cassandra loader starting...")
+    val tracefile: File = new File(args(0))
+    if (!tracefile.exists) {
+      sys.error("file "+tracefile+" does not exist")
+    }
 
     val db = new SpencerDB("test")
-    db.loadFrom(new File("/tmp/tracefile"))
-
-//    val sc : SparkContext = startSpark()
-//
-//    new TraceFileIterator(new File("/tmp/tracefile"))
-//      .foreach(
-//        evt => {
-//          if (evt.which() == AnyEvt.Which.METHODENTER) {
-//            if (evt.getMethodenter.getCalleetag == 4) {
-//              println(EventsUtil.messageToString(evt))
-//            }
-//          }
-//        }
-//      )
-//
-//    sc.stop()
-
-    System.exit(0)
-
-//    val started: Stopwatch = Stopwatch.createStarted()
-//    val par = sc.parallelize(new TraceFileIterator(new File("/tmp/tracefile")).toSeq)
-//    val size = par.count()
-//    System.out.println("got "+size+" events in "+started.stop())
-
+    db.loadFrom(tracefile)
+    println("done")
+    sys.exit(0)
   }
 }
