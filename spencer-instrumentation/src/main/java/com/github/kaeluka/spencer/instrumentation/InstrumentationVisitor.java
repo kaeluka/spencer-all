@@ -4,24 +4,23 @@ import org.objectweb.asm.*;
 import org.objectweb.asm.commons.AdviceAdapter;
 import org.objectweb.asm.commons.AnalyzerAdapter;
 import org.objectweb.asm.commons.JSRInlinerAdapter;
+import sun.misc.CompoundEnumeration;
 
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
+import java.lang.reflect.Array;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 
-public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
+class InstrumentationVisitor extends ClassVisitor implements Opcodes {
     private String classname;
     private String sourceFileName;
 
-    public InstrumentationVisitor(ClassVisitor cv) {
+    InstrumentationVisitor(ClassVisitor cv) {
         super(Opcodes.ASM5, cv);
     }
 
-    public String getClassName() {
+    private String getClassName() {
         return this.classname;
     }
 
@@ -31,7 +30,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         super.visitSource(source, debug);
     }
 
-    protected String getSourceFileName() {
+    private String getSourceFileName() {
         return this.sourceFileName;
     }
 
@@ -47,9 +46,6 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
     @Override
     public void visit(int version, int access, String name, String signature,
                       String superName, String[] interfaces) {
-//        System.out.println("name ="+name);
-//        System.out.println("type ="+Type.getType("L"+name+";"));
-
         this.classname = Type.getType("L"+name+";").getInternalName().replace('.', '/');
         super.visit(version, access, name, signature, superName, interfaces);
     }
@@ -105,16 +101,13 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                 exceptions);
     }
 
-    /* (non-Javadoc)
-     * @see org.objectweb.asm.ClassVisitor#visitEnd()
-     */
     @Override
     public void visitEnd() {
         super.visitEnd();
     }
 
 
-    public class InstrumentationMV extends AdviceAdapter {
+    class InstrumentationMV extends AdviceAdapter {
         private final String methodname;
         private final String signature;
         private final String classDescr;
@@ -126,21 +119,20 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         AnalyzerAdapter analyzer;
 
         private int lastVisitedLine = -1;
-        protected String getClassDescr() {
+        String getClassDescr() {
             return this.classDescr;
         }
 
-        protected String getLastVisitedLocation() {
+        String getLastVisitedLocation() {
             return "("+InstrumentationVisitor.this.getSourceFileName()+":"+this.lastVisitedLine
                     + ")";
         }
 
-        @SuppressWarnings("unused")
         protected void emitPrintTopOfStack() {
             this.emitPrintTopOfStack("out");
         }
 
-        protected void emitPrintTopOfStack(String stream) {
+        void emitPrintTopOfStack(String stream) {
             // .. top
             super.visitInsn(DUP); // .. top top
             super.visitFieldInsn(GETSTATIC, "java/lang/System", stream, "Ljava/io/PrintStream;"); // .. top top out
@@ -149,37 +141,29 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
             // .. top
         }
 
-        protected String getMethodName() {
+        String getMethodName() {
             return this.methodname;
         }
 
-        /* (non-Javadoc)
-         * @see org.objectweb.asm.MethodVisitor#visitLineNumber(int, org.objectweb.asm.Label)
-         */
         @Override
         public void visitLineNumber(int line, Label start) {
             this.lastVisitedLine = line;
             super.visitLineNumber(line, start);
         }
 
-
         protected boolean isStatic() {
             return (this.methodAccess & ACC_STATIC) != 0;
         }
 
-        protected String getMethodSignature() {
+        String getMethodSignature() {
             return this.signature;
         }
 
-        public void setAnalyzer(AnalyzerAdapter analyzer) {
+        void setAnalyzer(AnalyzerAdapter analyzer) {
             this.analyzer = analyzer;
         }
 
-        //		protected void pushClassDescr() {
-        //			super.visitLdcInsn(this.classDescr);
-        //		}
-
-        protected void runtimeWarning(String c) {
+        void runtimeWarning(String c) {
             final String msg = "====== " + this.getClass().getSimpleName()+" ("+InstrumentationVisitor.this.getSourceFileName()+":"+this.lastVisitedLine
                     + ") WARNING: " + c;
             this.emitPrintln(msg);
@@ -228,7 +212,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         /**
          * @param idx
          */
-        public Object getTypeOfLocal(final int idx) {
+        Object getTypeOfLocal(final int idx) {
             if (this.analyzer.locals != null) {
                 return this.analyzer.locals.get(idx);
             } else {
@@ -243,7 +227,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
          * @param var
          *            the varible index
          */
-        protected void pushKindAndObjectInVar(int var) {
+        void pushKindAndObjectInVar(int var) {
             comment("setting up pushing var " + var);
             comment("stack  = " + this.analyzer.stack);
             if (this.analyzer.locals != null) {
@@ -293,7 +277,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
             }
         }
 
-        protected void pushKindAndObjectAtDepth(int depth) {
+        void pushKindAndObjectAtDepth(int depth) {
             assert (this.analyzer != null);
             if (this.analyzer.stack == null) {
                 // The instruction is unreachable. Do whatever!
@@ -329,7 +313,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
             }
         }
 
-        protected void pushCallerClassStr() {
+        void pushCallerClassStr() {
             super.visitLdcInsn(getClassName());
         }
 
@@ -342,8 +326,8 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         protected void pushThreadObj() {
         }
 
-        public InstrumentationMV(MethodVisitor mv, String className,
-                                 String name, int access, String signature) {
+        InstrumentationMV(MethodVisitor mv, String className,
+                          String name, int access, String signature) {
             super(Opcodes.ASM5, mv, access, name, signature);
             this.classDescr = Type.getType("L"+className+";").getInternalName().replace('.','/');
             this.methodname = name;
@@ -351,9 +335,9 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         }
     }
 
-    public class FieldMV extends InstrumentationMV {
-        public FieldMV(MethodVisitor mv, String classDescr, String name,
-                       int access, String sig) {
+    private class FieldMV extends InstrumentationMV {
+        FieldMV(MethodVisitor mv, String classDescr, String name,
+                int access, String sig) {
             super(mv, classDescr, name, access, sig);
         }
 
@@ -837,12 +821,6 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                     false);
             comment("done with call to STOREFIELD");
         }
-
-        //		@Override
-        //		public void visitMaxs(int stack, int locals) {
-        //			// overapproximation
-        //			super.visitMaxs(stack + 40, locals + 10);
-        //		}
     }
 
     private class MethodMV extends InstrumentationMV {
@@ -865,7 +843,24 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                                 +")V",
                         false);
             }
-            emitMethodEnter();
+            if (!this.getClassDescr().contains("NativeInterface")) {
+                emitMethodEnter();
+            }
+        }
+
+        @Override
+        public void visitMethodInsn(final int opcode, final String owner, final String name, final String desc) {
+            super.visitMethodInsn(opcode, owner, name, desc);
+            handleNativeImplsPost(owner, name, desc);
+        }
+
+        @Override
+        public void visitMethodInsn(final int opcode, final String owner, final String name, final String desc, final boolean itf) {
+            super.visitMethodInsn(opcode, owner, name, desc, itf);
+            handleNativeImplsPost(owner, name, desc);
+        }
+
+        private void handleNativeImplsPost(final String owner, final String name, final String desc) {
         }
 
         private void emitMethodEnter() {
@@ -935,9 +930,7 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
             }
             comment("loading reftype args: done");
         }
-        /* (non-Javadoc)
-         * @see org.objectweb.asm.commons.AdviceAdapter#visitIntInsn(int, int)
-         */
+
         @Override
         public void visitIntInsn(int opcode, int operand) {
             // fake ctor call to primitive array
@@ -1062,6 +1055,41 @@ public class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                             false);
             }
         }
+    }
+
+    private class InitConstantsMV extends InstrumentationMV {
+
+        public InitConstantsMV(MethodVisitor mv, String classDescr, String name,
+                        int access, String sig) {
+            super(mv, classDescr, name, access, sig);
+        }
+
+        @Override
+        public void visitLdcInsn(final Object cst) {
+            super.visitLdcInsn(cst);
+            if (cst != null) {
+                super.visitInsn(DUP);
+                final String cstType = cst.getClass().getName().replace('.', '/');
+                System.out.println("constant " + cst + " has type " + cstType);
+                super.visitLdcInsn(cstType);
+                super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
+                        "afterInitMethod",
+                        "(Ljava/lang/Object;"
+                                + "Ljava/lang/String;"
+                                + ")V",
+                        false);
+                super.visitLdcInsn("<init>");
+                super.visitLdcInsn(cstType);
+                super.visitMethodInsn(INVOKESTATIC, "NativeInterface",
+                        "methodExit",
+                        "(Ljava/lang/String;"          //mname
+                                + "Ljava/lang/String;" //cname
+                                + ")V",
+                        false);
+
+            }
+        }
+
     }
 
     private class VarMV extends InstrumentationMV {

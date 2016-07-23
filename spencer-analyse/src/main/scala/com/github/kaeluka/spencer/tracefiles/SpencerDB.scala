@@ -1,14 +1,17 @@
 package com.github.kaeluka.spencer.tracefiles
 
 import java.io.{File, FileInputStream}
+import java.util.concurrent.ConcurrentHashMap
 
 import com.datastax.driver.core._
 import com.datastax.spark.connector.CassandraRow
 import com.github.kaeluka.spencer.{DBLoader, Events}
-import com.github.kaeluka.spencer.Events.{AnyEvt, ReadModifyEvt}
+import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
 import com.google.common.base.Stopwatch
-import org.apache.spark.SparkContext
+import org.apache.spark.{SparkConf, SparkContext}
 import com.datastax.spark.connector._
+import com.datastax.spark.connector.rdd.CassandraTableScanRDD
+import org.apache.spark.rdd.RDD
 
 /**
   * Created by stebr742 on 2016-07-01.
@@ -18,8 +21,24 @@ class SpencerDB(val keyspace: String) {
   var insertEdgeStatement : PreparedStatement = null
   var insertObjectStatement : PreparedStatement = null
   var session : Session = null
-  val saveOrigin = false
+  val saveOrigin = true
+  var sc : SparkContext = null;
 
+  def startSpark() {
+    if (this.isSparkStarted) {
+      throw new AssertionError()
+    }
+    val conf = new SparkConf()
+      .setAppName("spencer-analyse")
+      .set("spark.cassandra.connection.host", "127.0.0.1")
+      .setMaster("local[2]")
+
+    this.sc = new SparkContext(conf)
+  }
+
+  def isSparkStarted : Boolean = {
+    this.sc != null
+  }
 
   def handleEvent(evt: AnyEvt.Reader, idx: Int) {
     try {
@@ -39,8 +58,12 @@ class SpencerDB(val keyspace: String) {
             insertObject(menter.getCalleetag, menter.getCalleeclass.toString, menter.getCallsitefile.toString, menter.getCallsiteline, EventsUtil.messageToString(evt))
           }
         case AnyEvt.Which.METHODEXIT => () //???
-        case AnyEvt.Which.OBJALLOC => () //???
-        case AnyEvt.Which.OBJFREE => () //???
+        case AnyEvt.Which.LATEINIT =>
+          val lateinit: LateInitEvt.Reader = evt.getLateinit
+          insertObject(lateinit.getCalleetag
+            , lateinit.getCalleeclass.toString
+            , "<jvm internals>"
+            , -1, "late initialisation")
         case AnyEvt.Which.READMODIFY =>
 
           val readmodify: ReadModifyEvt.Reader = evt.getReadmodify
@@ -107,9 +130,67 @@ class SpencerDB(val keyspace: String) {
       if (saveOrigin) comment else null))
   }
 
-  def getLastObjUsages(): Unit = {
-    val sc: SparkContext = DBLoader.startSpark()
+  def aproposObject(tag: Long): String = {
+    val objTable: CassandraTableScanRDD[CassandraRow] = getTable("objects")
 
+    val theObj : RDD[CassandraRow] = objTable
+      .select("klass", "allocationsitefile", "allocationsiteline")
+      .where("id = ?", tag)
+      .cache
+    theObj
+      .map(_.getString("klass"))
+      .collect
+
+    var ret = tag+ " :: "
+    if (theObj.count == 0) {
+      ret += "<not initialised>\n"
+    } else {
+      ret += theObj.collect.mkString(", ")+"\n"
+      ret += "allocated at:\n  - "
+      ret +=
+        theObj
+          .map(row => row.getString("allocationsitefile")++"::"++row.getString("allocationsiteline"))
+          .collect
+        .mkString("\n  - ")
+      ret += "\n"
+    }
+
+    val usesTable: CassandraTableScanRDD[CassandraRow] = this.getTable("uses")
+    val uses: RDD[CassandraRow] =
+      usesTable.select("comment").where("caller = ?", tag) ++
+        usesTable.select("comment").where("callee = ?", tag)
+
+    ret += "uses:\n  "
+    if (uses.count == 0) {
+      ret += "  <no uses>\n"
+    } else {
+      ret += uses.map(_.getString("comment")).collect.mkString("\n  ")+"\n"
+    }
+
+    val refsTable: CassandraTableScanRDD[CassandraRow] = this.getTable("refs")
+    val refs : RDD[CassandraRow] =
+      refsTable.select("comment").where("caller = ?", tag) ++
+        refsTable.select("comment").where("callee = ?", tag)
+
+    ret += "references from/to the object:\n  - "
+    if (refs.count == 0) {
+      ret += "<no references>\n"
+    } else {
+      ret += refs.map(_.getString("comment")).collect.mkString("\n  - ")+"\n"
+    }
+
+    ret.replaceAll(" "+tag+" ", " <THE OBJECT>")
+
+  }
+
+  def getTable(table: String): CassandraTableScanRDD[CassandraRow] = {
+    this.sc.cassandraTable(this.session.getLoggedKeyspace, table)
+  }
+
+  def getLastObjUsages(): Unit = {
+    if (! this.isSparkStarted) {
+      throw new AssertionError()
+    }
     val watch: Stopwatch = Stopwatch.createStarted()
 
     val lastUsages = sc.cassandraTable(this.session.getLoggedKeyspace, "uses")
@@ -172,6 +253,8 @@ class SpencerDB(val keyspace: String) {
     }
 
     connectToKeyspace(cluster, this.keyspace)
+
+    this.startSpark()
   }
 
   def connectToKeyspace(cluster: Cluster, keyspace: String): Unit = {
@@ -195,19 +278,22 @@ class SpencerDB(val keyspace: String) {
       "firstUsage bigint, " +
       "lastUsage bigint, " +
       "comment text, " +
-      "PRIMARY KEY(id)) ;")
+      "PRIMARY KEY(id)) " +
+      "WITH COMPRESSION = {};")
 
     session.execute("CREATE TABLE "+keyspace+".refs(" +
       "caller bigint, callee bigint, " +
       "kind text, "+
       "start bigint, end bigint, " +
       "comment text, " +
-      "PRIMARY KEY(caller, callee, kind));")
+      "PRIMARY KEY(caller, callee, kind)) " +
+      "WITH COMPRESSION = {};")
 
     session.execute("CREATE TABLE "+keyspace+".uses(" +
       "caller bigint, callee bigint, kind text, idx bigint, comment text, " +
       "PRIMARY KEY(caller, callee, idx)" +
-      ");")
+      ") " +
+      "WITH COMPRESSION = {};")
 
     session.close()
     this.session = cluster.connect(keyspace)

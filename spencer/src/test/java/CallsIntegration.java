@@ -1,7 +1,7 @@
 import com.github.kaeluka.spencer.Events;
 import com.github.kaeluka.spencer.Events.AnyEvt.Which;
 import com.github.kaeluka.spencer.analysis.CountEvents;
-import com.github.kaeluka.spencer.tracefiles.EventsUtil;
+import com.github.kaeluka.spencer.analysis.Util;
 import com.github.kaeluka.spencer.tracefiles.TraceFileIterator;
 import org.junit.Before;
 import org.junit.Test;
@@ -10,7 +10,6 @@ import util.SpencerRunner;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Stack;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -58,7 +57,6 @@ public class CallsIntegration {
         }
     }
 
-
     /**
      * check that method enters and exits form a nested call structure by
      * making sure that the method exit's name always matches the top frame
@@ -66,49 +64,9 @@ public class CallsIntegration {
      */
     @Test
     public void callStructureMatches() {
-        class IndexedEnter {
-            private final long idx;
-            private final Events.MethodEnterEvt.Reader enter;
 
-            private IndexedEnter(final long idx, final Events.MethodEnterEvt.Reader enter) {
-                this.idx = idx;
-                this.enter = enter;
-            }
-        };
-
-        final HashMap<String, Stack<IndexedEnter>> callStacks = new HashMap<>();
         final TraceFileIterator it = getTraceFileIterator(runResult.getTracefile());
-        long cnt = 0;
-
-        while (it.hasNext()) {
-            final Events.AnyEvt.Reader evt = it.next();
-            cnt++;
-
-            if (evt.isMethodenter()) {
-                final Events.MethodEnterEvt.Reader methodenter = evt.getMethodenter();
-                final String thdName = methodenter.getThreadName().toString();
-                if (!callStacks.containsKey(thdName)) {
-                    callStacks.put(thdName,
-                            new Stack<>());
-                }
-                callStacks.get(thdName).push(new IndexedEnter(cnt, methodenter));
-
-            } else if (evt.isMethodexit()) {
-                final Events.MethodExitEvt.Reader methodexit = evt.getMethodexit();
-                final String thdName = methodexit.getThreadName().toString();
-                assertThat(callStacks, hasKey(thdName));
-                final IndexedEnter poppedFrame = callStacks.get(thdName).pop();
-
-                assertThat("popped frame's (#" + cnt
-                                + ") name must match last entered frame (#"
-                                + poppedFrame.idx + ") in thread '"
-                                + thdName + "'\n"
-                                + "last entered frame: "
-                                + EventsUtil.methodEnterToString(poppedFrame.enter),
-                        poppedFrame.enter.getName().toString(),
-                        is(methodexit.getName().toString()));
-            }
-        }
+        Util.assertProperCallStructure(it);
     }
 
     @Test

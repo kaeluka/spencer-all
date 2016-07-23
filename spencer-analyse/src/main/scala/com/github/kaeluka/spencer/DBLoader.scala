@@ -11,23 +11,17 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 object DBLoader {
 
-  def startSpark(): SparkContext = {
-    val conf = new SparkConf()
-      .setAppName("spencer-analyse")
-      .set("spark.cassandra.connection.host", "127.0.0.1")
-      .setMaster("local[2]")
-
-    new SparkContext(conf)
-  }
-
   def main(args: Array[String]) {
 
     if (args.length != 1) {
       sys.error("usage: java "+this.getClass.getName+" path/to/tracefile")
     }
 
-    println("spencer cassandra loader starting...")
     val tracefile: File = new File(args(0))
+    println("spencer cassandra loader starting...")
+
+    println("checking file " + tracefile)
+//    analysis.Util.assertProperCallStructure(new TraceFileIterator(tracefile))
     if (!tracefile.exists) {
       sys.error("file "+tracefile+" does not exist")
     }

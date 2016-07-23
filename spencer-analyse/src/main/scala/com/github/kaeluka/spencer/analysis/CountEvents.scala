@@ -16,13 +16,13 @@ object CountEvents extends
 
     while (log.hasNext) {
 
-      val next = log.next
-      val thdName = EventsUtil.getThread(next)
+      val evt = log.next
+      val thdName = EventsUtil.getThread(evt)
       if (!counts.containsKey(thdName)) {
         counts.put(thdName, new util.HashMap())
       }
       val innerCount: util.HashMap[AnyEvt.Which, Int] = counts.get(thdName)
-      innerCount.put(next.which(), innerCount.get(next.which())+1)
+      innerCount.put(evt.which(), innerCount.get(evt.which())+1)
       cnt += 1
     }
 

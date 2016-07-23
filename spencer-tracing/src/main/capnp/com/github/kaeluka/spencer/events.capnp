@@ -4,11 +4,6 @@ using Java = import "/java.capnp";
 $Java.package("com.github.kaeluka.spencer");
 $Java.outerClassname("Events");
 
-struct TagObj {
-  id    @0 :Int64;
-  klass @1 :Text;
-}
-
 struct MethodEnterEvt {
   name         @0 :Text;
   calleeclass  @1 :Text;
@@ -37,17 +32,15 @@ struct FieldStoreEvt {
   threadName   @9 :Text;
 }
 
-struct ObjAllocEvt {
-  tag           @0 :Int64;
-  klass         @1 :Text;
-  callermethod  @2 :Text;
-  callerclass   @3 :Text;
-  caller        @4 :Int64;
-  threadName    @5 :Text;
+struct FieldTuple {
+  name @0 :Text;
+  val  @1 :Int64;
 }
 
-struct ObjFreeEvt {
-  tag @0 :Int64;
+struct LateInitEvt {
+  calleetag     @0 :Int64;
+  calleeclass   @1 :Text;
+  fields        @2 :List(FieldTuple);
 }
 
 struct FieldLoadEvt {
@@ -94,13 +87,12 @@ struct ReadModifyEvt {
 struct AnyEvt {
   union {
     methodenter @0 :MethodEnterEvt;
-    objfree     @1 :ObjFreeEvt;
-    objalloc    @2 :ObjAllocEvt;
-    fieldstore  @3 :FieldStoreEvt;
-    fieldload   @4 :FieldLoadEvt;
-    varstore    @5 :VarStoreEvt;
-    varload     @6 :VarLoadEvt;
-    readmodify  @7 :ReadModifyEvt;
-    methodexit  @8 :MethodExitEvt;
+    lateinit    @1 :LateInitEvt;
+    fieldstore  @2 :FieldStoreEvt;
+    fieldload   @3 :FieldLoadEvt;
+    varstore    @4 :VarStoreEvt;
+    varload     @5 :VarLoadEvt;
+    readmodify  @6 :ReadModifyEvt;
+    methodexit  @7 :MethodExitEvt;
   }
 }

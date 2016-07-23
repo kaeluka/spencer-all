@@ -2,32 +2,56 @@ package com.github.kaeluka.spencer.analysis
 import com.github.kaeluka.spencer.DBLoader
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
 import org.apache.spark.SparkContext
+import org.apache.spark.rdd.{PairRDDFunctions, RDD}
 import com.datastax.spark.connector._
+import com.google.common.base.Stopwatch
+import org.apache.spark.storage.StorageLevel
+
 
 object SanityCheck extends SpencerDBAnalyser {
   override def setUp(db: SpencerDB): Unit = { }
 
   override def analyse(db: SpencerDB): Unit = {
-    val sc: SparkContext = DBLoader.startSpark()
-    val caller = sc.cassandraTable(db.session.getLoggedKeyspace, "refs").select("caller").map(_.getLong("caller")).distinct().sortBy(x => x).filter(_ > 0)
-    val callees = sc.cassandraTable(db.session.getLoggedKeyspace, "refs").select("callee").map(_.getLong("callee")).distinct().sortBy(x => x).filter(_ > 0)
-    val rowSet: Set[CassandraRow] = sc.cassandraTable(db.session.getLoggedKeyspace, "objects").select("id").distinct().collect().toSet
-    val objects = rowSet.map(_.getLong("id"))
-    println("have got "+caller.count()+" callers")
-    println("have got "+callees.count()+" callees")
-    println("have got "+objects.size+" objects")
+    val watch: Stopwatch = Stopwatch.createStarted()
+    val callers = db.sc.cassandraTable(db.session.getLoggedKeyspace, "refs")
+      .select("caller")
+      .map(_.getLong("caller"))
+      .filter(_ > 0)
+      .distinct()
+      .setName("get all callers")
+    val callees = db.sc.cassandraTable(db.session.getLoggedKeyspace, "refs")
+      .select("callee")
+      .map(_.getLong("callee"))
+      .filter(_ > 0)
+      .distinct()
+      .setName("get all callees")
+    val objects: RDD[Long] = db.sc.cassandraTable(db.session.getLoggedKeyspace, "objects")
+      .select("id")
+      .distinct()
+      .map(_.getLong("id"))
+      .setName("get all object IDs")
+//    println("have got "+caller.count+" callers")
+//    println("have got "+callees.count+" callees")
+//    println("have got "+objects.count+" objects")
 
 //    println("objects ====================")
 //    objects.foreach(println(_))
 
-
     println("callees ====================")
 //    callees.foreach(println(_))
-    val notObjects = callees.filter( !objects.contains(_) ).collect()
-    notObjects.foreach(tag => println("not recognised: "+tag))
-    println(notObjects.length+" objects were not recognised")
+    //    val notObjects = callees.filter( !objects.contains(_) ).collect()
+    val uninitCallees: RDD[Long] = callees.subtract(objects)
+    println(uninitCallees
+      .takeSample(withReplacement = false, 30, seed = 0)
+      .map(handleUninitCallee(db, _))
+      .mkString("\n"))
+    println("...\nTOTAL: " + uninitCallees.count + " objects")
 
-//    objects.zip(callees).foreach(ab =>
+    val uninitCallers: RDD[Long] = callers.subtract(objects)
+    println(uninitCallers.takeSample(withReplacement = false, 30).map("caller but never initialised: " + _).mkString("\n"))
+    println("...\nTOTAL: " + uninitCallers.count + " objects")
+    println("sanity check took "+watch.stop)
+    //    objects.zip(callees).foreach(ab =>
 //      ab match {
 //        case (a, b) => {
 //          println("a="+a+", b="+b)
@@ -43,8 +67,13 @@ object SanityCheck extends SpencerDBAnalyser {
         //      if (! objects.)
         //    }
         //    )
+//    sys.exit(0)
+  }
 
-      }
+  def handleUninitCallee(db: SpencerDB, callee: Long) : String = {
+    "callee but never initialised: " + callee + "\n----------\n" +
+      db.aproposObject(callee) + "\n==========\n"
+  }
 
-    override def tearDown(db: SpencerDB): Unit = { }
+  override def tearDown(db: SpencerDB): Unit = { }
   }

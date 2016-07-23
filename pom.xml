@@ -52,7 +52,7 @@
     <modules>
         <module>spencer</module>
         <module>spencer-instrumentation</module>
-        <module>spencer-runtime-transformer</module>
+        <!--module>spencer-runtime-transformer</module-->
         <module>spencer-server</module>
         <module>spencer-tracing</module>
         <module>spencer-analyse</module>
