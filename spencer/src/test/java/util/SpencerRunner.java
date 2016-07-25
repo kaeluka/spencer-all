@@ -19,7 +19,7 @@ public class SpencerRunner {
 
             Path testDir = getTestDir();
 
-            List<String> args = new ArrayList<String>();
+            List<String> args = new ArrayList<>();
             args.add("../../spencer");
             args.add("-tracedir "+testDir);
             args.add("--");
@@ -38,6 +38,7 @@ public class SpencerRunner {
             while ((line = bufferedStdoutReader.readLine()) != null) {
                 stdout.append("\n");
                 stdout.append(line);
+                System.out.println("stdout: "+line);
             }
 
             final InputStreamReader stderrReader =
@@ -48,6 +49,7 @@ public class SpencerRunner {
             while ((line = bufferedStderrReader.readLine()) != null) {
                 stderr.append("\n");
                 stderr.append(line);
+                System.out.println("stderr: "+line);
             }
             final int exitCode = process.waitFor();
             if (exitCode != 0) {
@@ -60,7 +62,6 @@ public class SpencerRunner {
                         stderr.toString(),
                         testDir);
             }
-
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -97,18 +98,17 @@ public class SpencerRunner {
         }
 
         public Path getTracefile() {
-            final Path ret = Paths.get(this.tracedir.toString(), "tracefile");
-            return ret;
+            return Paths.get(this.tracedir.toString(), "tracefile");
         }
     }
 
-    public static class RunFailureException extends RuntimeException {
+    private static class RunFailureException extends RuntimeException {
 
         private final int exitCode;
 
-        public RunFailureException(int exitCode,
-                                   final String stdout,
-                                   final String stderr) {
+        RunFailureException(int exitCode,
+                            final String stdout,
+                            final String stderr) {
             super("program failed with exit code "+exitCode
                     + "\n\n########## stdout:\n"
                     + stdout

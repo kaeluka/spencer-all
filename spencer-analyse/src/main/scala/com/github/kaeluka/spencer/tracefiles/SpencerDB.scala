@@ -1,18 +1,19 @@
 package com.github.kaeluka.spencer.tracefiles
 
-import java.io.{File, FileInputStream}
-import java.util.concurrent.ConcurrentHashMap
+import java.io.File
+import java.util.EmptyStackException
 
 import com.datastax.driver.core._
-import com.datastax.spark.connector.CassandraRow
-import com.github.kaeluka.spencer.{DBLoader, Events}
-import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, MethodEnterEvt, ReadModifyEvt}
-import com.google.common.base.Stopwatch
-import org.apache.spark.{SparkConf, SparkContext}
-import com.datastax.spark.connector._
+import com.datastax.spark.connector.{CassandraRow, _}
 import com.datastax.spark.connector.rdd.CassandraTableScanRDD
+import com.github.kaeluka.spencer.Events
+import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
 import com.github.kaeluka.spencer.analysis.CallStackAbstraction
+import com.google.common.base.Stopwatch
 import org.apache.spark.rdd.RDD
+import org.apache.spark.{SparkConf, SparkContext}
+
+import scala.collection.JavaConversions._
 
 /**
   * Created by stebr742 on 2016-07-01.
@@ -54,7 +55,6 @@ class SpencerDB(val keyspace: String) {
           insertEdge(fstore.getCallertag, fstore.getHoldertag, "field", idx, EventsUtil.messageToString(evt))
         case AnyEvt.Which.METHODENTER =>
           val menter = evt.getMethodenter
-          val oldTop: MethodEnterEvt.Reader = stacks.peek(menter.getThreadName.toString).get.enter
           stacks.push(menter, idx)
           if (menter.getName.toString == "<init>") {
             //            if (menter.getCallsiteline != -1) {
@@ -62,15 +62,27 @@ class SpencerDB(val keyspace: String) {
             //            }
             insertObject(menter.getCalleetag, menter.getCalleeclass.toString, menter.getCallsitefile.toString, menter.getCallsiteline, EventsUtil.messageToString(evt))
           }
-          insertUse(oldTop.getCalleetag, menter.getCalleetag, "call", idx, EventsUtil.messageToString(evt))
+          val oldTopTag : Long = stacks.peek(menter.getThreadName.toString) match {
+            case Some(idxdEnter) => idxdEnter.enter.getCalleetag
+            case None => 4 // SPECIAL_VAL_JVM
+          }
+          insertUse(oldTopTag, menter.getCalleetag, "call", idx, EventsUtil.messageToString(evt))
         case AnyEvt.Which.METHODEXIT =>
-          stacks.pop(evt.getMethodexit)
+          try {
+            stacks.pop(evt.getMethodexit)
+          } catch {
+            case _: EmptyStackException =>
+              println("empty stack for " + EventsUtil.messageToString(evt))
+          }
         case AnyEvt.Which.LATEINIT =>
           val lateinit: LateInitEvt.Reader = evt.getLateinit
           insertObject(lateinit.getCalleetag
             , lateinit.getCalleeclass.toString
             , "<jvm internals>"
             , -1, "late initialisation")
+          for (fld <- lateinit.getFields) {
+            insertEdge(lateinit.getCalleetag, fld.getVal, "field", 1, "name = "+fld.getName)
+          }
         case AnyEvt.Which.READMODIFY =>
 
           val readmodify: ReadModifyEvt.Reader = evt.getReadmodify
@@ -194,7 +206,7 @@ class SpencerDB(val keyspace: String) {
     this.sc.cassandraTable(this.session.getLoggedKeyspace, table)
   }
 
-  def getLastObjUsages(): Unit = {
+  def computeLastObjUsages(): Unit = {
     if (! this.isSparkStarted) {
       throw new AssertionError()
     }
@@ -245,7 +257,7 @@ class SpencerDB(val keyspace: String) {
       i += 1
     }
     println("loading "+(i-1)+" events took "+stopwatch.stop())
-    getLastObjUsages()
+    computeLastObjUsages()
   }
 
   def connect(overwrite: Boolean = false): Unit = {

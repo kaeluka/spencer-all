@@ -1,6 +1,7 @@
 package com.github.kaeluka.spencer.analysis
 
 import java.util
+import java.util.EmptyStackException
 
 import scala.collection.JavaConversions._
 import com.github.kaeluka.spencer.Events
@@ -24,7 +25,13 @@ object Util {
           stacks.push(evt.getMethodenter, cnt)
         } else if (evt.isMethodexit) {
           val methodexit: Events.MethodExitEvt.Reader = evt.getMethodexit
-          val popped: Either[IndexedEnter, IndexedEnter] = stacks.pop(methodexit)
+          val popped: Either[IndexedEnter, IndexedEnter] = try {
+            stacks.pop(methodexit)
+          } catch {
+            case _: EmptyStackException => fail("had no stack frames left when executing methodexit #"+": \n" +
+              EventsUtil.methodExitToString(methodexit))
+              null
+          }
           popped match {
             case Left(wrongTop) => fail("popped frame's (#" + cnt
               + ") name must match last entered frame (#" + wrongTop.idx

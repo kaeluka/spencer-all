@@ -39,7 +39,6 @@ class InstrumentationVisitor extends ClassVisitor implements Opcodes {
     }
 
     private static boolean isObjectType(String desc) {
-        //			System.out.println(((desc.charAt(0) == 'L') ? "object type: " : "not object type: ") + desc);
         return desc.charAt(0) == 'L';
     }
 

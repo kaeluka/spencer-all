@@ -91,7 +91,7 @@ object EventsUtil {
 
   def methodExitToString(mexit: MethodExitEvt.Reader): String = {
     "methodExit -" +
-      " name=" + mexit.getName +
+      " name=" + mexit.getCname + "::" + mexit.getName +
       " thread=" + mexit.getThreadName
   }
 

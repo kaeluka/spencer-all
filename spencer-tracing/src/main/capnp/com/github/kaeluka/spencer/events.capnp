@@ -16,7 +16,8 @@ struct MethodEnterEvt {
 
 struct MethodExitEvt {
   name       @0  :Text;
-  threadName @1  :Text;
+  cname      @1  :Text;
+  threadName @2  :Text;
 }
 
 struct FieldStoreEvt {

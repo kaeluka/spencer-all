@@ -102,7 +102,7 @@ std::string toInternalForm(std::string typ) {
   return ret;
 }
 
-void doFramePop(std::string mname) {
+void doFramePop(std::string mname, std::string cname) {
   std::string threadName = getThreadName();
   capnp::MallocMessageBuilder outermessage;
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
@@ -111,6 +111,7 @@ void doFramePop(std::string mname) {
                    //           "java/lang/Thread", thread, g_jvmti, g_lock);
   msgbuilder.setThreadName(threadName);
   msgbuilder.setName(mname);
+  msgbuilder.setCname(cname);
   ASSERT(std::string("") != msgbuilder.getName().cStr());
   anybuilder.setMethodexit(msgbuilder.asReader());
 
@@ -400,7 +401,7 @@ Java_NativeInterface_methodExit(JNIEnv *env, jclass, jstring _mname, jstring _cn
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
   DBG("Java_NativeInterface_methodExit:  ...::"<<mname<<"), thd: "<<getThreadName());
   ASSERT(mname != "ClassRep");
-  doFramePop(mname);
+  doFramePop(mname, cname);
   DBG("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
 #endif
@@ -797,22 +798,10 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
           }
 
           {
-            capnp::MallocMessageBuilder outermessage;
-            AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
-            capnp::MallocMessageBuilder innermessage;
-            MethodExitEvt::Builder msgbuilder =
-              innermessage.initRoot<MethodExitEvt>();
-            msgbuilder.setName("<init>");
-            msgbuilder.setThreadName(getThreadName().c_str());
-
-            anybuilder.setMethodexit(msgbuilder.asReader());
-
-            if (traceToDisk) {
-              capnp::writeMessageToFd(capnproto_fd, outermessage);
-            }
+            doFramePop("<init>", calleeClassStr);
           }
-
         }
+
         capnp::MallocMessageBuilder outermessage;
         AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
         capnp::MallocMessageBuilder innermessage;
@@ -1223,6 +1212,8 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
 
   if (name == "NativeInterface"
       || name == "sun/reflect/generics/repository/ClassRepository" // http://www.docjar.com/docs/api/sun/reflect/generics/repository/ClassRepository.html: [the class] is designed to be used unchanged by at least core reflection and JDI.
+      || name == "sun/misc/Launcher$AppClassLoader"
+      || name == "java/lang/Object" // there seem to be objects that generate an exit in Object::<init> but don't generate a matching enter..
       ) {
     return;
   }
@@ -1231,7 +1222,6 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
     //check whether the class is marked as 'tricky'. If so, it should not be transformed now, but
     //redefined later.
     for (auto it = onlyDuringLivePhaseMatch.begin(); it != onlyDuringLivePhaseMatch.end(); ++it) {
-
       auto res = std::mismatch(it->begin(), it->end(), name.begin());
 
       if (res.first == it->end()) {
