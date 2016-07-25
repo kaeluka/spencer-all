@@ -175,15 +175,17 @@ class SpencerDB(val keyspace: String) {
     }
 
     val usesTable: CassandraTableScanRDD[CassandraRow] = this.getTable("uses")
-    val uses: RDD[CassandraRow] =
-      usesTable.select("comment").where("caller = ?", tag) ++
-        usesTable.select("comment").where("callee = ?", tag)
+    val uses =
+      (usesTable.select("comment", "idx").where("caller = ?", tag) ++
+        usesTable.select("comment", "idx").where("callee = ?", tag))
+        .map(row=>(row.getLong("idx"), row.getString("comment"))).distinct()
+        .sortBy(_._1)
 
     ret += "uses:\n  "
     if (uses.count == 0) {
       ret += "  <no uses>\n"
     } else {
-      ret += uses.map(_.getString("comment")).collect.mkString("\n  ")+"\n"
+      ret += uses.collect.mkString("\n  ")+"\n"
     }
 
     val refsTable: CassandraTableScanRDD[CassandraRow] = this.getTable("refs")

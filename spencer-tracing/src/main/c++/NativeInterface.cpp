@@ -719,7 +719,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
     msgbuilder.setCalleetag(calleeTag);
 
     if (isInLivePhase()) {
-      SourceLoc loc = getSourceLoc(1);
+      SourceLoc loc = getSourceLoc(2);
       msgbuilder.setCallsitefile(loc.file);
       msgbuilder.setCallsiteline(loc.line);
     } else {
@@ -785,7 +785,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
             msgbuilder.setSignature("(<unknown>)V");
             msgbuilder.setCalleeclass(klass);
             msgbuilder.setCalleetag(tag);
-            SourceLoc loc = getSourceLoc(1);
+            SourceLoc loc = getSourceLoc(2);
             msgbuilder.setCallsitefile(loc.file);
             msgbuilder.setCallsiteline(loc.line);
             msgbuilder.setThreadName(getThreadName().c_str());
