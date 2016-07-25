@@ -21,7 +21,7 @@ object DBLoader {
     println("spencer cassandra loader starting...")
 
     println("checking file " + tracefile)
-//    analysis.Util.assertProperCallStructure(new TraceFileIterator(tracefile))
+    analysis.Util.assertProperCallStructure(new TraceFileIterator(tracefile))
     if (!tracefile.exists) {
       sys.error("file "+tracefile+" does not exist")
     }

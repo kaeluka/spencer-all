@@ -65,7 +65,7 @@ class InstrumentationVisitor extends ClassVisitor implements Opcodes {
             final MethodMV methodMV = new MethodMV(acc, this.getClassName(), name,
                     access, desc);
             MethodVisitor exitHandler = ExitHandler.mk(
-                    methodMV, access, name,
+                    methodMV, access, this.getClassName(), name,
                     desc, signature, exceptions, (mv, reason) -> {
                         mv.visitLdcInsn("reason for exit: "+reason);
                         mv.visitInsn(POP);

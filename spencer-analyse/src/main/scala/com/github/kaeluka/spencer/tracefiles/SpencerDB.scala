@@ -6,11 +6,12 @@ import java.util.concurrent.ConcurrentHashMap
 import com.datastax.driver.core._
 import com.datastax.spark.connector.CassandraRow
 import com.github.kaeluka.spencer.{DBLoader, Events}
-import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
+import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, MethodEnterEvt, ReadModifyEvt}
 import com.google.common.base.Stopwatch
 import org.apache.spark.{SparkConf, SparkContext}
 import com.datastax.spark.connector._
 import com.datastax.spark.connector.rdd.CassandraTableScanRDD
+import com.github.kaeluka.spencer.analysis.CallStackAbstraction
 import org.apache.spark.rdd.RDD
 
 /**
@@ -23,6 +24,8 @@ class SpencerDB(val keyspace: String) {
   var session : Session = null
   val saveOrigin = true
   var sc : SparkContext = null;
+
+  val stacks: CallStackAbstraction = new CallStackAbstraction()
 
   def startSpark() {
     if (this.isSparkStarted) {
@@ -51,13 +54,17 @@ class SpencerDB(val keyspace: String) {
           insertEdge(fstore.getCallertag, fstore.getHoldertag, "field", idx, EventsUtil.messageToString(evt))
         case AnyEvt.Which.METHODENTER =>
           val menter = evt.getMethodenter
+          val oldTop: MethodEnterEvt.Reader = stacks.peek(menter.getThreadName.toString).get.enter
+          stacks.push(menter, idx)
           if (menter.getName.toString == "<init>") {
             //            if (menter.getCallsiteline != -1) {
             //              println("inserting: " + menter.getCalleetag)
             //            }
             insertObject(menter.getCalleetag, menter.getCalleeclass.toString, menter.getCallsitefile.toString, menter.getCallsiteline, EventsUtil.messageToString(evt))
           }
-        case AnyEvt.Which.METHODEXIT => () //???
+          insertUse(oldTop.getCalleetag, menter.getCalleetag, "call", idx, EventsUtil.messageToString(evt))
+        case AnyEvt.Which.METHODEXIT =>
+          stacks.pop(evt.getMethodexit)
         case AnyEvt.Which.LATEINIT =>
           val lateinit: LateInitEvt.Reader = evt.getLateinit
           insertObject(lateinit.getCalleetag

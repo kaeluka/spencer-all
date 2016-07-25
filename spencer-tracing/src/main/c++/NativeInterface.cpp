@@ -83,7 +83,7 @@ std::string getThreadName() {
     std::string ret(info.name);
     g_jvmti->Deallocate((unsigned char*)info.name);
     if (ret == "") {
-      return "<unnamed thread>";
+      return "<unknown thread>";
     } else {
       return ret;
     }
@@ -717,7 +717,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
     msgbuilder.setCalleeclass(toStdString(env, calleeClass));
     msgbuilder.setCalleetag(calleeTag);
 
-    if ((*nameStr.c_str() == '<') && isInLivePhase()) {
+    if (isInLivePhase()) {
       SourceLoc loc = getSourceLoc(1);
       msgbuilder.setCallsitefile(loc.file);
       msgbuilder.setCallsiteline(loc.line);
@@ -1221,8 +1221,9 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
     return;
   }
 
-  if (name == "NativeInterface") {
-    DODBG("returning");
+  if (name == "NativeInterface"
+      || name == "sun/reflect/generics/repository/ClassRepository" // http://www.docjar.com/docs/api/sun/reflect/generics/repository/ClassRepository.html: [the class] is designed to be used unchanged by at least core reflection and JDI.
+      ) {
     return;
   }
 
@@ -1314,7 +1315,7 @@ std::vector<FieldDescr> getFieldsForTag(jvmtiEnv *env, JNIEnv *jni, long tag) {
     }
 
   } else {
-    DODBG("got null for "<<getTypeForTag(jni, tag));
+    DBG("got null for "<<getTypeForTag(jni, tag));
   }
   return ret;
 }
@@ -1338,7 +1339,7 @@ jvmtiIterationControl JNICALL handleUntaggedObject(jlong class_tag,
 void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
   #ifdef ENABLED
   LOCK;
-  DODBG("VMInit");
+  DBG("VMInit");
 
   {
     // tag objects that have not been tagged yet!
@@ -1350,7 +1351,7 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
                            &freshlyTagged);
     ASSERT_NO_JVMTI_ERR(env, err);
 
-    DODBG("late initialising "<<freshlyTagged.size() <<" objects");
+    DBG("late initialising "<<freshlyTagged.size() <<" objects");
     for (auto it = freshlyTagged.begin(); it != freshlyTagged.end(); ++it) {
       capnp::MallocMessageBuilder outermessage;
       AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
@@ -1381,8 +1382,7 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
         capnp::writeMessageToFd(capnproto_fd, outermessage);
       }
     }
-    DODBG("late initialising "<<freshlyTagged.size() <<" objects done");
-
+    DBG("late initialising "<<freshlyTagged.size() <<" objects done");
   }
 
   g_init = true;
@@ -1435,7 +1435,8 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
       DBG("redefining class "<<redef->name<<" -- len="<<redef->klassDef.class_byte_count);
       jvmtiError err = g_jvmti->RedefineClasses(1, &redef->klassDef);
       if (err == JVMTI_ERROR_INVALID_CLASS) {
-        WARN("could not redefine class "<<redef->name);
+        WARN("could not redefine class "<<redef->name<<" (JVMTI_ERROR_INVALID_CLASS)");
+      } else {
         ASSERT_NO_JVMTI_ERR(g_jvmti, err);
       }
     }
