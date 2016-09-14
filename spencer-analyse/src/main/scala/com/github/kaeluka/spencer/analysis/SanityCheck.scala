@@ -1,5 +1,5 @@
 package com.github.kaeluka.spencer.analysis
-import com.github.kaeluka.spencer.DBLoader
+import com.github.kaeluka.spencer.SpencerLoad
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.{PairRDDFunctions, RDD}
@@ -8,24 +8,23 @@ import com.google.common.base.Stopwatch
 import org.apache.spark.storage.StorageLevel
 
 
-object SanityCheck extends SpencerDBAnalyser {
-  override def setUp(db: SpencerDB): Unit = { }
+object SanityCheck extends SpencerAnalyser[Unit] {
 
-  override def analyse(db: SpencerDB): Unit = {
+  override def analyse(implicit g: SpencerData): Unit = {
     val watch: Stopwatch = Stopwatch.createStarted()
-    val callers = db.sc.cassandraTable(db.session.getLoggedKeyspace, "refs")
+    val callers = g.db.sc.cassandraTable(g.db.session.getLoggedKeyspace, "refs")
       .select("caller")
       .map(_.getLong("caller"))
       .filter(_ > 0)
       .distinct()
       .setName("get all callers")
-    val callees = db.sc.cassandraTable(db.session.getLoggedKeyspace, "refs")
+    val callees = g.db.sc.cassandraTable(g.db.session.getLoggedKeyspace, "refs")
       .select("callee")
       .map(_.getLong("callee"))
       .filter(_ > 0)
       .distinct()
       .setName("get all callees")
-    val objects: RDD[Long] = db.sc.cassandraTable(db.session.getLoggedKeyspace, "objects")
+    val objects: RDD[Long] = g.db.sc.cassandraTable(g.db.session.getLoggedKeyspace, "objects")
       .select("id")
       .distinct()
       .map(_.getLong("id"))
@@ -43,7 +42,7 @@ object SanityCheck extends SpencerDBAnalyser {
     val uninitCallees: RDD[Long] = callees.subtract(objects)
     println(uninitCallees
       .takeSample(withReplacement = false, 30, seed = 0)
-      .map(handleUninitCallee(db, _))
+      .map(handleUninitCallee(g.db, _))
       .mkString("\n"))
     println("...\nTOTAL: " + uninitCallees.count + " objects")
 
@@ -75,5 +74,6 @@ object SanityCheck extends SpencerDBAnalyser {
       db.aproposObject(callee) + "\n==========\n"
   }
 
-  override def tearDown(db: SpencerDB): Unit = { }
-  }
+  override def pretty(result: Unit): String = ""
+
+}

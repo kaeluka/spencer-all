@@ -90,15 +90,15 @@ object EventsUtil {
   }
 
   def methodExitToString(mexit: MethodExitEvt.Reader): String = {
-    "methodExit -" +
-      " name=" + mexit.getCname + "::" + mexit.getName +
-      " thread=" + mexit.getThreadName
+    "<== (??? @ " +
+      mexit.getCname + ") . " + mexit.getName +
+      "(???), thread=" + mexit.getThreadName
   }
 
   def methodEnterToString(mthdEnter: MethodEnterEvt.Reader ): String = {
-    "methodEnter -" +
-      " callee=" + mthdEnter.getCalleeclass + " @ " + mthdEnter.getCalleetag +
-      " , method=" + mthdEnter.getName + mthdEnter.getSignature +
+    "==> " +
+      " (" + mthdEnter.getCalleeclass + " @ " + mthdEnter.getCalleetag +
+      ") . " + mthdEnter.getName + mthdEnter.getSignature +
       " , callsite=" + mthdEnter.getCallsitefile + ":" + mthdEnter.getCallsiteline +
       " , thread=" + mthdEnter.getThreadName
   }

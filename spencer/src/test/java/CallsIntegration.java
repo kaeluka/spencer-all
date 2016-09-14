@@ -25,38 +25,6 @@ public class CallsIntegration {
         assert this.runResult != null;
     }
 
-    @Test
-    public void callNumbersMatch() {
-        TraceFileIterator it = getTraceFileIterator(this.runResult.getTracefile());
-        final HashMap<String, HashMap<Events.AnyEvt.Which, Object>>
-                eventsPerThread = CountEvents.analyse(it);
-
-//        assertThat("must have some var loads",
-//                (Integer)events.get(Which.VARLOAD),
-//                greaterThan(0));
-//        assertThat("must have some var stores",
-//                (Integer)events.get(Which.VARSTORE),
-//                greaterThan(0));
-//        assertThat("must have some field loads",
-//                (Integer)events.get(Which.FIELDLOAD),
-//                greaterThan(0));
-//        assertThat("must have some field stores",
-//                (Integer)events.get(Which.FIELDSTORE),
-//                greaterThan(0));
-        for (String thdName : eventsPerThread.keySet()) {
-            if (!thdName.startsWith("<")) {
-                final HashMap<Which, Object> events = eventsPerThread.get(thdName);
-                assertThat("must have some method enters for thread '" + thdName + "'",
-                        (Integer) events.get(Which.METHODENTER),
-                        greaterThan(0));
-                assertThat("Method enters and method exits must match in numbers " +
-                                "for thread '" + thdName + "'",
-                        (Integer) events.get(Events.AnyEvt.Which.METHODENTER),
-                        lessThanOrEqualTo((Integer) events.get(Events.AnyEvt.Which.METHODEXIT)));
-            }
-        }
-    }
-
     /**
      * check that method enters and exits form a nested call structure by
      * making sure that the method exit's name always matches the top frame

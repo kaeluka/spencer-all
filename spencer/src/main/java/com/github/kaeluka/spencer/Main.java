@@ -39,18 +39,14 @@ public class Main {
 
         options.addOptionGroup(ioOptions);
 
-        options.addOption(
-                Option
-                        .builder("verbose")
-                        .desc("Show diagnostic output.")
-                        .build());
-        options.addOption(
-                Option
-                        .builder("help")
-                        .desc("Display this help.")
-                        .build());
-
-
+        options.addOption(Option
+                .builder("verbose")
+                .desc("Show diagnostic output.")
+                .build());
+        options.addOption(Option
+                .builder("help")
+                .desc("Display this help.")
+                .build());
 
         return options;
     }
@@ -176,23 +172,8 @@ public class Main {
         argStrings.add(System.getProperty("java.home") + sep + "bin" + sep + "java");
 
         logIfVerbose("cp is: "+System.getProperty("java.class.path"), spencerArgs);
-        java.io.InputStream is = Main.class.getResourceAsStream("/dependencies.properties");
-
-        java.util.Properties p = new Properties();
-        p.load(is);
-
-//        logIfVerbose("===============", spencerArgs);
-//        final List keys = new LinkedList();
-//        keys.addAll(p.keySet());
-//        keys.sort(Comparator.naturalOrder());
-//        for (Object key : keys) {
-//            logIfVerbose(key + "\t" + p.getProperty((String) key), spencerArgs);
-//        }
-//        logIfVerbose("===============", spencerArgs);
-
-        final String aol = p.getProperty("nar.aol");
-        final String version="0.1.3-SNAPSHOT";
-        final URL resource = Main.class.getResource("/nar/spencer-tracing-"+version+"-" + aol+"-jni" + "/lib/" + aol + "/jni/libspencer-tracing-"+version+".jnilib");
+        final URL resource = getAgentLib();
+        assert resource != null;
 
         final File tempAgentFile = Files.createTempFile("spencer-tracing-agent", ".jnilib").toFile();
         assert tempAgentFile.createNewFile();
@@ -201,7 +182,6 @@ public class Main {
         FileUtils.copyURLToFile(resource, tempAgentFile);
 
         logIfVerbose("agent binary: "+tempAgentFile, spencerArgs);
-
 
         if (!tempAgentFile.exists()) {
             throw new IllegalStateException("could not find agent binary: "+tempAgentFile);
@@ -237,6 +217,26 @@ public class Main {
         return processBuilder.start();
     }
 
+    private static URL getAgentLib() throws IOException {
+        java.io.InputStream is = Main.class.getResourceAsStream("/dependencies.properties");
+
+        java.util.Properties p = new Properties();
+        p.load(is);
+
+        final String aol = p.getProperty("nar.aol");
+        final String version="0.1.3-SNAPSHOT";
+
+        final String lib = "/nar/spencer-tracing-" + version + "-" + aol + "-jni" + "/lib/" + aol + "/jni/libspencer-tracing-" + version + ".jnilib";
+        URL resource = Main.class.getResource(lib);
+        if (resource == null) {
+            resource = Main.class.getResource(lib.replace(".jnilib", ".so"));
+        }
+        if (resource == null) {
+            throw new AssertionError("could not find agent lib: "+lib);
+        }
+        return resource;
+    }
+
     private static ArrayList<String> tokenizeArgs(final String[] args) {
         ArrayList<String> ret = new ArrayList<>();
         for (String arg : args) {
@@ -246,8 +246,8 @@ public class Main {
         return ret;
     }
 
-    private static void printClassPath(CommandLine spencerArgs) {
-        final List<URL> urLs = Arrays.asList(((URLClassLoader) Main.class.getClassLoader()).getURLs());
-        logIfVerbose("class path: "+ urLs, spencerArgs);
-    }
+//    private static void printClassPath(CommandLine spencerArgs) {
+//        final List<URL> urLs = Arrays.asList(((URLClassLoader) Main.class.getClassLoader()).getURLs());
+//        logIfVerbose("class path: "+ urLs, spencerArgs);
+//    }
 }

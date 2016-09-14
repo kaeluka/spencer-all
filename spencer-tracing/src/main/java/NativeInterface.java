@@ -1,4 +1,3 @@
-import com.github.kaeluka.spencer.tracing.NarSystem;
 import sun.reflect.ReflectionFactory;
 
 import java.lang.reflect.Field;
@@ -9,10 +8,6 @@ import java.util.List;
 import java.util.Objects;
 
 public class NativeInterface {
-
-//  static {
-//    NarSystem.loadLibrary();
-//  }
 
     public static final int SPECIAL_VAL_NORMAL = 0; // normal
     public static final int SPECIAL_VAL_THIS = 1; //returned as callee id from constructors

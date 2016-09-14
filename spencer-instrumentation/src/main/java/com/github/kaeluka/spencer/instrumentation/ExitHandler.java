@@ -19,7 +19,7 @@ import java.util.function.BiConsumer;
  * @author Stephan Brandauer
  *
  */
-public final class ExitHandler extends AdviceAdapter implements Opcodes {
+final class ExitHandler extends AdviceAdapter implements Opcodes {
 
     private final Label startTryLabel = new Label();
     private final Label endTryLabel = new Label();
@@ -30,9 +30,9 @@ public final class ExitHandler extends AdviceAdapter implements Opcodes {
     private int lastVisitedLine;
 //	private final HashSet<Integer> exitedOnLines = new HashSet<>();
 
-    public static MethodVisitor mk(final MethodVisitor mv, final int access,
-                                   final String cName, final String mName, final String desc, final String signature,
-                                   final String[] exceptions, BiConsumer<ExitHandler, String> onExit) {
+    static MethodVisitor mk(final MethodVisitor mv, final int access,
+                            final String cName, final String mName, final String desc, final String signature,
+                            final String[] exceptions, BiConsumer<ExitHandler, String> onExit) {
         return new ExitHandler(new TryCatchBlockSorter(mv,
                 access,
                 mName,
@@ -50,16 +50,16 @@ public final class ExitHandler extends AdviceAdapter implements Opcodes {
         this.onExit = onExit;
     }
 
-    @Override
-    public void visitCode() {
-        super.visitCode();
-        super.visitTryCatchBlock(startTryLabel, endTryLabel, endTryLabel, "java/lang/Throwable");
-        super.visitLabel(startTryLabel);
-    }
+//    @Override
+//    public void visitCode() {
+//        super.visitCode();
+//    }
 
     @Override
-    public void visitTryCatchBlock(final Label start, final Label end, final Label handler, final String type) {
-        super.visitTryCatchBlock(start, end, handler, type);
+    protected void onMethodEnter() {
+        super.onMethodEnter();
+        super.visitTryCatchBlock(startTryLabel, endTryLabel, endTryLabel, "java/lang/Throwable");
+        super.visitLabel(startTryLabel);
     }
 
     @Override
