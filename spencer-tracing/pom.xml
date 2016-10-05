@@ -115,6 +115,7 @@
                     <cpp>
                         <options>
                             <option>-std=c++14</option>
+                            <option>-stdlib=libc++</option>
                         </options>
                         <debug>true</debug>
                     </cpp>
