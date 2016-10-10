@@ -151,7 +151,7 @@ public class TransformerServer {
                                 out,
                                 TransformerServer.hierarchy);
                     } catch (Exception ex) {
-                        ex.printStackTrace();
+                        ex.printStackTrace(TransformerServer.out);
                     }
                     if (! Arrays.equals(recvd, transformed)) {
                         println(TransformerServer.out, "transformed class");
