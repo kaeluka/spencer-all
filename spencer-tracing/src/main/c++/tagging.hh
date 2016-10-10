@@ -17,6 +17,7 @@
 #include "callstack.hh"
 #include <sys/types.h>
 #include <sys/dir.h>
+#include <atomic>
 
 std::atomic_long nextObjID(NativeInterface_SPECIAL_VAL_MAX+1);
 //arst std::map<long, std::vector<std::pair<long, std::string> > > stacks;

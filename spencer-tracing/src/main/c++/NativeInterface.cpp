@@ -17,7 +17,11 @@
 #include <netinet/tcp.h>
 #include <stdlib.h>
 
+#include <algorithm>
+
 using namespace std;
+
+//extern std::atomic_long nextObjID;
 
 /*******************************************************************/
 /* Global Data                                                     */
@@ -165,7 +169,7 @@ void doFramePop(std::string mname, std::string cname) {
   }
 }
 
-bool isInLivePhase() {
+inline bool isInLivePhase() {
   /*
     jvmtiPhase phase;
     jvmtiError err = g_jvmti->GetPhase(&phase);
@@ -174,6 +178,8 @@ bool isInLivePhase() {
   */
   return g_init;
 }
+
+#define REQUIRE_LIVE() {if (!isInLivePhase()) { return; } }
 
 /*******************************************************************/
 /* Socket management                                               */
@@ -340,6 +346,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_loadArrayA
  jstring _callerClass,
  jint callerValKind,
  jobject caller) {
+  REQUIRE_LIVE();
 
   stringstream field;
   field<<"_"<<idx;
@@ -369,6 +376,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_storeArrayA
  jstring _callerClass,
  jint callerValKind,
  jobject caller) {
+  REQUIRE_LIVE();
 
   stringstream field;
   field<<"_"<<idx;
@@ -401,6 +409,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_storeArrayA
  */
 JNIEXPORT void JNICALL Java_NativeInterface_readArray
 (JNIEnv *env, jclass nativeInterface, jobject arr, jint idx, jint callerValKind, jobject caller, jstring callerClass) {
+  REQUIRE_LIVE();
   stringstream field;
   field<<"_"<<idx;
 
@@ -421,6 +430,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_readArray
  */
 JNIEXPORT void JNICALL Java_NativeInterface_modifyArray
 (JNIEnv *env, jclass nativeInterface, jobject arr, jint idx, jint callerValKind, jobject caller, jstring callerClass) {
+  REQUIRE_LIVE();
   stringstream field;
   field<<"_"<<idx;
 
@@ -438,6 +448,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_modifyArray
 
 JNIEXPORT void JNICALL
 Java_NativeInterface_methodExit(JNIEnv *env, jclass, jstring _mname, jstring _cname) {
+  REQUIRE_LIVE();
 #ifdef ENABLED
   LOCK;
   const auto mname = toStdString(env, _mname);
@@ -726,6 +737,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
                                  jstring calleeClass, jint calleeKind,
                                  jobject callee, jobjectArray args) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   LOCK;
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
   std::string threadName = getThreadName();
@@ -878,6 +890,7 @@ JNIEXPORT void JNICALL
 Java_NativeInterface_afterInitMethod(JNIEnv *env, jclass native_interface,
                                      jobject callee, jstring calleeClass) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   LOCK;
   std::string calleeClassStr = toStdString(env, calleeClass);
   std::string threadName = getThreadName();
@@ -891,6 +904,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_newObj(JNIEnv *, jclass, jobject,
                                                    jstring, jstring, jstring,
                                                    jobject, jobject) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   // LOCK;
   ERR("newObj not implemented");
 #endif // ifdef ENABLED
@@ -959,6 +973,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_storeFieldA(
                                                         jstring _type, jstring _callerClass, jstring _callerMethod, jint callerKind,
                                                         jobject caller) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   LOCK;
   std::string callerClass  = toStdString(env, _callerClass);
   std::string holderClass  = toStdString(env, _holderClass);
@@ -978,6 +993,7 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
                               jstring callerMethod, jint callerKind,
                               jobject caller) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   LOCK;
   DBG("Java_NativeInterface_storeVar");
   auto threadName = getThreadName();
@@ -1020,6 +1036,7 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
                              jstring callerMethod, jint callerKind,
                              jobject caller) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   LOCK;
   auto threadName = getThreadName();
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
@@ -1100,6 +1117,7 @@ Java_NativeInterface_modify(JNIEnv *env, jclass native_interface,
                             jstring calleeClass, jstring fname, jint callerKind,
                             jobject caller, jstring callerClass) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   handleModify(env, native_interface,
                calleeKind,
                callee,
@@ -1120,6 +1138,7 @@ void handleRead(JNIEnv *env, jclass native_interface,
                 jobject caller,
                 std::string callerClass) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   LOCK;
   auto threadName = getThreadName();
   DBG("Java_NativeInterface_read");
@@ -1154,6 +1173,7 @@ Java_NativeInterface_read(JNIEnv *env, jclass nativeInterface, jint calleeKind,
                           jobject callee, jstring calleeClass, jstring fname,
                           jint callerKind, jobject caller, jstring callerClass) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   LOCK;
   handleRead(env, nativeInterface, calleeKind, callee, toStdString(env, calleeClass), toStdString(env, fname), callerKind, caller, toStdString(env, callerClass));
 #endif // ifdef ENABLED
@@ -1206,6 +1226,7 @@ Java_NativeInterface_loadFieldA(JNIEnv *env, jclass native_interface,
                                 jstring _callerMethod, jint callerKind,
                                 jobject caller) {
 #ifdef ENABLED
+  REQUIRE_LIVE();
   std::string holderClass = toStdString(env, _holderClass);
   std::string fname = toStdString(env, _fname);
   std::string type = toStdString(env, _type);
@@ -1269,7 +1290,7 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
     for (auto it = onlyDuringLivePhaseMatch.begin(); it != onlyDuringLivePhaseMatch.end(); ++it) {
       auto res = std::mismatch(it->begin(), it->end(), name.begin());
 
-      if (res.first == it->end()) {
+      if (true || res.first == it->end()) {
         DBG("postponing transformation of class "<<name<<" -- len="<<class_data_len<< ", due to match with "<<*it);
         // match string is a prefix of class name
         SpencerClassRedefinition redef;
@@ -1660,8 +1681,10 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
     error = g_jvmti->AddToBootstrapClassLoaderSearch("./");
     ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
     //FIXME hard coded path:
-    error = g_jvmti->AddToBootstrapClassLoaderSearch("/Users/stebr742/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/spencer-tracing-0.1.3-SNAPSHOT-events.jar");
-    error = g_jvmti->AddToBootstrapClassLoaderSearch("/Users/stebr742/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/");
+    error = g_jvmti->AddToBootstrapClassLoaderSearch("/home/stephan/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/spencer-tracing-0.1.3-SNAPSHOT-events.jar");
+    error = g_jvmti->AddToBootstrapClassLoaderSearch("/home/stephan/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/");
+    error = g_jvmti->AddToBootstrapClassLoaderSearch("~/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/spencer-tracing-0.1.3-SNAPSHOT-events.jar");
+    error = g_jvmti->AddToBootstrapClassLoaderSearch("~/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/");
     ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
   }
 

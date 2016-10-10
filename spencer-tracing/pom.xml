@@ -114,16 +114,19 @@
                     </libraries>
                     <cpp>
                         <options>
-                            <option>-std=c++14</option>
-                            <option>-stdlib=libc++</option>
+                            <option>-std=c++1y</option>
+                            <option>/usr/local/lib/libcapnp.a</option>
+                            <option>/usr/local/lib/libkj.a</option>
                         </options>
                         <debug>true</debug>
                     </cpp>
                     <linker>
                         <options>
-                            <option>-lkj</option>
-                            <option>-lcapnp</option>
+                            <!--option>-lkj</option-->
+                            <!--option>-lcapnp</option-->
                             <option>-lc</option>
+                            <option>/usr/local/lib/libcapnp.a</option>
+                            <option>/usr/local/lib/libkj.a</option>
                         </options>
                     </linker>
                 </configuration>

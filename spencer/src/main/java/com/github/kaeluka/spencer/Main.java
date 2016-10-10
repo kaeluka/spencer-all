@@ -177,7 +177,7 @@ public class Main {
 
         final File tempAgentFile = Files.createTempFile("spencer-tracing-agent", ".jnilib").toFile();
         assert tempAgentFile.createNewFile();
-        tempAgentFile.deleteOnExit();
+        //tempAgentFile.deleteOnExit();
 
         FileUtils.copyURLToFile(resource, tempAgentFile);
 
@@ -223,7 +223,9 @@ public class Main {
         java.util.Properties p = new Properties();
         p.load(is);
 
-        final String aol = p.getProperty("nar.aol");
+        String aol = p.getProperty("nar.aol");
+	assert aol != null;
+	aol = aol.replace(".", "-");
         final String version="0.1.3-SNAPSHOT";
 
         final String lib = "/nar/spencer-tracing-" + version + "-" + aol + "-jni" + "/lib/" + aol + "/jni/libspencer-tracing-" + version + ".jnilib";
