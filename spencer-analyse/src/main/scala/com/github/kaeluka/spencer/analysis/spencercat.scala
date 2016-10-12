@@ -1,6 +1,6 @@
 package com.github.kaeluka.spencer.analysis
 
-import java.io.File
+import java.io.{File, FileInputStream, InputStream}
 import java.util
 import java.util.logging.LogManager
 
@@ -14,9 +14,9 @@ object spencercat extends App {
     val defaultFile: File = new File("/tmp/tracefile")
     val iter = if (args.length != 1) {
       System.err.println("Warning: no file given, using default file instead: "+defaultFile)
-      new TraceFile(defaultFile).iterator
+      new TraceFile(new FileInputStream(defaultFile)).iterator
     } else {
-      new TraceFile(new File(args(0))).iterator
+      new TraceFile(new FileInputStream(new File(args(0)))).iterator
     }
 
     var cnt = 1

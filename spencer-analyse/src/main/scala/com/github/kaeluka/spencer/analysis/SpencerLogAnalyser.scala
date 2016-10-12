@@ -2,7 +2,7 @@ package com.github.kaeluka.spencer.analysis
 
 import com.github.kaeluka.spencer.Events
 import com.github.kaeluka.spencer.tracefiles.{SpencerDB, TraceFileIterator}
-import java.io.File
+import java.io.{File, FileInputStream}
 
 import com.google.common.base.Stopwatch
 
@@ -19,7 +19,7 @@ trait SpencerLogAnalyser[T] extends App {
       } else {
         new File(args(0))
       }
-    val it = new TraceFileIterator(inputFile)
+    val it = new TraceFileIterator(new FileInputStream(inputFile))
 
     val watch = Stopwatch.createStarted()
 

@@ -1,6 +1,6 @@
 package com.github.kaeluka.spencer.tracefiles
 
-import java.io.File
+import java.io.{File, FileInputStream, InputStream}
 import java.util.EmptyStackException
 
 import com.datastax.driver.core._
@@ -355,7 +355,7 @@ class SpencerDB(val keyspace: String) {
   }
 
 
-  def loadFrom(f : File) {
+  def loadFrom(f : InputStream) {
 
     var hadLateInits = false
     var doneWithHandleInits = false
