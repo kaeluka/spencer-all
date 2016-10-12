@@ -1,5 +1,0 @@
-#! /usr/bin/env bash
-
-readonly DIR=$(dirname $0)
-
-java -jar ${DIR}/target/spencer-*.jar $@

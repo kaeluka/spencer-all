@@ -1,6 +1,0 @@
-#! /usr/bin/env bash
-
-readonly DIR=$(dirname $0)
-
-#java -jar ${DIR}/../spencer-analyse/target/spencer-*.jar $@
-cd spencer-analyse; mvn --quiet exec:exec -Dexec.args="-cp %classpath com.github.kaeluka.spencer.SpencerLoad $@" -Dexec.executable="java"
