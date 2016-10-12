@@ -1,7 +1,7 @@
 package com.github.kaeluka.spencer.tracefiles
 
-import java.io.{File, FileInputStream, IOException}
-import java.nio.channels.ReadableByteChannel
+import java.io.{File, FileInputStream, IOException, InputStream}
+import java.nio.channels.{Channel, Channels, ReadableByteChannel}
 
 import com.github.kaeluka.spencer.Events
 import com.github.kaeluka.spencer.Events.AnyEvt
@@ -14,8 +14,8 @@ class TraceFileIterator(val channel : ReadableByteChannel) extends java.util.Ite
 
   private var nxtVal : AnyEvt.Reader = TraceFileIterator.getNxtOrNull(channel)
 
-  def this(file : File) {
-    this(new FileInputStream(file).getChannel)
+  def this(input : InputStream) {
+    this(Channels.newChannel(input))
   }
 
   def next : AnyEvt.Reader = {

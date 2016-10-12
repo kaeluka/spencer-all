@@ -19,6 +19,8 @@
 
 #include <algorithm>
 
+#include <pwd.h>
+
 using namespace std;
 
 //extern std::atomic_long nextObjID;
@@ -1680,11 +1682,17 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
     //FIXME I think we don't need ./ any longer:
     error = g_jvmti->AddToBootstrapClassLoaderSearch("./");
     ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
-    //FIXME hard coded path:
-    error = g_jvmti->AddToBootstrapClassLoaderSearch("/home/stephan/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/spencer-tracing-0.1.3-SNAPSHOT-events.jar");
-    error = g_jvmti->AddToBootstrapClassLoaderSearch("/home/stephan/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/");
-    error = g_jvmti->AddToBootstrapClassLoaderSearch("~/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/spencer-tracing-0.1.3-SNAPSHOT-events.jar");
-    error = g_jvmti->AddToBootstrapClassLoaderSearch("~/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/");
+
+    char *home;
+    if ((home = getenv("HOME")) == NULL) {
+      home = getpwuid(getuid())->pw_dir;
+
+    }
+
+    //FIXME: hard coded version number
+    std::string jar = std::string(home)+"/.m2/repository/com/github/kaeluka/spencer-tracing/0.1.3-SNAPSHOT/spencer-tracing-0.1.3-SNAPSHOT-events.jar";
+
+    error = g_jvmti->AddToBootstrapClassLoaderSearch(jar.c_str());
     ASSERT_NO_JVMTI_ERR(g_jvmti, error); // make NativeInterface.class visible
   }
 

@@ -1,6 +1,6 @@
 package com.github.kaeluka.spencer.tracefiles
 
-import java.io.File
+import java.io.{File, FileInputStream, InputStream}
 import java.util.EmptyStackException
 
 import com.datastax.driver.core._
@@ -20,6 +20,14 @@ import scala.collection.JavaConversions._
   * Created by stebr742 on 2016-07-01.
   */
 class SpencerDB(val keyspace: String) {
+  def shutdown() = {
+    this.session.close()
+    this.cluster.close()
+    this.sc.stop()
+  }
+
+  var cluster : Cluster = _
+
 
   var insertUseStatement : PreparedStatement = _
   var insertEdgeStatement : PreparedStatement = _
@@ -40,6 +48,8 @@ class SpencerDB(val keyspace: String) {
       .setAppName("spencer-analyse")
       .set("spark.cassandra.connection.host", "127.0.0.1")
 //      .set("spark.cassandra.connection.host", "130.238.10.30")
+//      .setMaster("spark://Stephans-MacBook-Pro.local:7077")
+//      .set("spark.executor.memory", "4g").set("worker_max_heap", "1g")
       .setMaster("local[8]")
 
     this.sc = new SparkContext(conf)
@@ -345,7 +355,7 @@ class SpencerDB(val keyspace: String) {
   }
 
 
-  def loadFrom(f : File) {
+  def loadFrom(f : InputStream) {
 
     var hadLateInits = false
     var doneWithHandleInits = false
@@ -381,7 +391,7 @@ class SpencerDB(val keyspace: String) {
   }
 
   def connect(overwrite: Boolean = false): Unit = {
-    val cluster: Cluster =
+    this.cluster =
       Cluster.builder()
         .addContactPoint("127.0.0.1")
 //        .addContactPoint("130.238.10.30")

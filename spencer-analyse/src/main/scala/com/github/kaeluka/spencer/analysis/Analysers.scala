@@ -59,25 +59,29 @@ case class Klass() extends SpencerAnalyser[RDD[String]] {
 
 case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
   override def analyse(implicit g: SpencerData): RDD[T] = {
-    val queryString = inner.toString
-    val snapshots = g.db.getTable("snapshots").where("query = ?", queryString)
-    assert(snapshots.count == 0 || snapshots.count == 1)
-
-    if (snapshots.count == 0) {
-      val result = inner.analyse.cache()
-      val baostream: ByteArrayOutputStream = new ByteArrayOutputStream()
-      val ostream: ObjectOutputStream = new ObjectOutputStream(baostream)
-      ostream.writeObject(result.collect())
-
-      val resultSerialised = ByteBuffer.wrap(baostream.toByteArray())
-      println("snapshot for query "+queryString+": writing "+(resultSerialised.array().length)+" bytes")
-      g.db.session.execute("INSERT INTO "+g.db.session.getLoggedKeyspace+".snapshots (query, result) VALUES (?, ?);", queryString, resultSerialised)
-      result
+    if (inner.isInstanceOf[Snapshotted[_]]) {
+      inner.analyse
     } else {
-      val resultSerialised = snapshots .take(1)(0).getBytes("result")
-      println("snapshot for query "+queryString+": reading "+(resultSerialised.array().length)+" bytes")
-      val ois: ObjectInputStream = new ObjectInputStream(new ByteArrayInputStream(resultSerialised.array()))
-      g.db.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
+      val queryString = inner.toString
+      val snapshots = g.db.getTable("snapshots").where("query = ?", queryString)
+      assert(snapshots.count == 0 || snapshots.count == 1)
+
+      if (snapshots.count == 0) {
+        val result = inner.analyse.cache()
+        val baostream: ByteArrayOutputStream = new ByteArrayOutputStream()
+        val ostream: ObjectOutputStream = new ObjectOutputStream(baostream)
+        ostream.writeObject(result.collect())
+
+        val resultSerialised = ByteBuffer.wrap(baostream.toByteArray())
+        println("snapshot for query "+queryString+": writing "+(resultSerialised.array().length)+" bytes")
+        g.db.session.execute("INSERT INTO "+g.db.session.getLoggedKeyspace+".snapshots (query, result) VALUES (?, ?);", queryString, resultSerialised)
+        result
+      } else {
+        val resultSerialised = snapshots .take(1)(0).getBytes("result")
+        println("snapshot for query "+queryString+": reading "+(resultSerialised.array().length)+" bytes")
+        val ois: ObjectInputStream = new ObjectInputStream(new ByteArrayInputStream(resultSerialised.array()))
+        g.db.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
+      }
     }
   }
 
@@ -332,7 +336,10 @@ case class Timed[T](inner: SpencerAnalyser[T]) extends SpencerAnalyser[T] {
   }
 
   override def pretty(result: T): String = {
-    this.toString+":\n"+inner.pretty(result)
+    duration.start()
+    val iPretty = inner.pretty(result)
+    duration.stop()
+    this.toString+":\n"+iPretty
   }
 
   override def toString: String = {
@@ -663,49 +670,54 @@ case class ConnectedWith(roots: SpencerAnalyser[RDD[VertexId]]
 
 object Scratch extends App {
 
-  val db: SpencerDB = new SpencerDB("test")
-  db.connect()
+  run
 
-  import AnalyserImplicits._
+  def run: Unit = {
+    val db: SpencerDB = new SpencerDB("test")
+    db.connect()
 
-  private val watch: Stopwatch = Stopwatch.createStarted()
-  implicit val g: SpencerData = SpencerGraphImplicits.spencerDbToSpencerGraph(db)
+    import AnalyserImplicits._
 
-  private val query =
-//    ProportionPerAllocationSite(Deeply(MutableObj()) and ObjWithInstanceCountAtLeast(10))
-//    InstanceOfClass("Foo") vs MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP)
-//    InstanceOfClass("Foo") vs (ImmutableObj() and ImmutableObj())
-//    InstanceOfClass("java.util.TreeSet")
-//    Snapshotted(MutableObj())
-    Snapshotted(DeeplyImmutableClass())
-//    InDegree(InDegree.Aliased, InDegreeSpec.HEAP) vs InDegree(InDegree.Aliased, InDegreeSpec.STACK)
-//    Mutable() vs InDegree(InDegree.Aliased)
-//    (InstanceOfClass("Foo") and Mutable()) vs (InstanceOfClass("Foo") and InDegree(InDegree.Aliased))
-//    Apropos(90996)
-//    ProportionOutOf(InstanceOfClass("[C"), AllObjects())
-//    WithClassName(InDegree(_ > 1) and Mutable())
-//    ConnectedWith(InstanceOfClass("Foo")) and Mutable()
-//    Apropos(91947)
-//    WithClassName(ReachableFrom(InstanceOfClass("java.lang.String")))
-//    Tabulate(AllClasses(), (klass: String) => ProportionOutOf(Immutable(), InstanceOfClass(klass)))
+    val watch: Stopwatch = Stopwatch.createStarted()
+    implicit val g: SpencerData = SpencerGraphImplicits.spencerDbToSpencerGraph(db)
 
-  val res = query.analyse
+    val query =
+    //    ProportionPerAllocationSite(Deeply(MutableObj()) and ObjWithInstanceCountAtLeast(10))
+    //    InstanceOfClass("Foo") vs MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP)
+    //    InstanceOfClass("Foo") vs (ImmutableObj() and ImmutableObj())
+    //    InstanceOfClass("java.util.TreeSet")
+    //    MutableObj()
+    DeeplyImmutableClass()
+    //    InDegree(InDegree.Aliased, InDegreeSpec.HEAP) vs InDegree(InDegree.Aliased, InDegreeSpec.STACK)
+    //    Mutable() vs InDegree(InDegree.Aliased)
+    //    (InstanceOfClass("Foo") and Mutable()) vs (InstanceOfClass("Foo") and InDegree(InDegree.Aliased))
+    //    Apropos(90996)
+    //    ProportionOutOf(InstanceOfClass("[C"), AllObjects())
+    //    WithClassName(InDegree(_ > 1) and Mutable())
+    //    ConnectedWith(InstanceOfClass("Foo")) and Mutable()
+    //    Apropos(91947)
+    //    WithClassName(ReachableFrom(InstanceOfClass("java.lang.String")))
+    //    Tabulate(AllClasses(), (klass: String) => ProportionOutOf(Immutable(), InstanceOfClass(klass)))
 
-//  res.collect().foreach(id => {
-//    val query = Apropos(id)
-//    val res = query.analyse
-//    println(query.pretty(res))
-//    println("===============")
-//  })
-  println(query.pretty(res))
+    val res = Snapshotted(query).analyse
 
-//  val map = res.toMap.mapValues(x => x.collect())
+    //  res.collect().foreach(id => {
+    //    val query = Apropos(id)
+    //    val res = query.analyse
+    //    println(query.pretty(res))
+    //    println("===============")
+    //  })
+    println(query.pretty(res))
 
-//  println(map.map({
-//    case (klass, objs) => objs.mkString("class " + klass + ":\t{ ", ", ", " }")
-//  }).mkString("\n"))
+    //  val map = res.toMap.mapValues(x => x.collect())
 
-  println("analysis took "+watch.stop())
+    //  println(map.map({
+    //    case (klass, objs) => objs.mkString("class " + klass + ":\t{ ", ", ", " }")
+    //  }).mkString("\n"))
 
-  sys.exit(0)
+    println("analysis took " + watch.stop())
+    db.shutdown()
+  }
+
+
 }

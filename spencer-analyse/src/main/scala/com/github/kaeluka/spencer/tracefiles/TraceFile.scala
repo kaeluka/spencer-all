@@ -1,5 +1,5 @@
 package com.github.kaeluka.spencer.tracefiles
-import java.io.File
+import java.io.{File, InputStream}
 import java.nio.file.Path
 import java.util.{Spliterator, Spliterators}
 import java.util.stream.StreamSupport
@@ -9,7 +9,7 @@ import com.github.kaeluka.spencer.Events.AnyEvt
 /**
   * Created by stebr742 on 2016-07-16.
   */
-class TraceFile(val file : File) extends java.lang.Iterable[AnyEvt.Reader] {
+class TraceFile(val file : InputStream) extends java.lang.Iterable[AnyEvt.Reader] {
   override def iterator: java.util.Iterator[AnyEvt.Reader] = {
     new TraceFileIterator(this.file)
   }
