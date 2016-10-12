@@ -37,11 +37,11 @@ object SpencerLoad {
     println(args.mkString(", "))
 
     val name = args
-      .find(_.startsWith("--name="))
-      .map(_.replace("--name=", ""))
+      .find(_.startsWith("name="))
+      .map(_.replace("name=", ""))
       .getOrElse("test")
 
-    val rest = args.filter(!_.startsWith("--name="))
+    val rest = args.filter(!_.startsWith("name="))
 
 
     println((SpencerLoad.getClass().getClassLoader()).asInstanceOf[URLClassLoader].getURLs.mkString(",\n"))
