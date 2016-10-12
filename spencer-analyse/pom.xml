@@ -50,6 +50,7 @@
                         </goals>
                     </execution>
                 </executions>
+
                 <configuration>
                     <scalaVersion>2.11.8</scalaVersion>
                 </configuration>
@@ -68,9 +69,19 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>com.github.kaeluka.spencer.Main</mainClass>
+                                    <mainClass>com.github.kaeluka.spencer.SpencerLoad</mainClass>
                                 </transformer>
                             </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                         </configuration>
                     </execution>
                 </executions>

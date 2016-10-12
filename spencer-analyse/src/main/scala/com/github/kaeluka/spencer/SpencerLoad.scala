@@ -1,6 +1,7 @@
 package com.github.kaeluka.spencer
 
 import java.io._
+import java.net.URLClassLoader
 import java.util.zip.{ZipEntry, ZipFile}
 
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
@@ -9,7 +10,7 @@ object SpencerLoad {
 
 //  val defaultTracefile = "/Volumes/MyBook/tracefiles/pmd.small/tracefile"
 //  val defaultTracefile = "/tmp/tracefile"
-  val defaultTracefile = "/Users/stebr742/code/kaeluka/spencer-playground/tracefile"
+  val defaultTracefile = "/tmp/tracefile.zip"
 
   def getInputStream(path: String) : InputStream = {
     if (!new File(path).exists()) {
@@ -33,22 +34,31 @@ object SpencerLoad {
 
 
   def main(args: Array[String]) {
-
     println(args.mkString(", "))
 
+    val name = args
+      .find(_.startsWith("--name="))
+      .map(_.replace("--name=", ""))
+      .getOrElse("test")
+
+    val rest = args.filter(!_.startsWith("--name="))
+
+
+    println((SpencerLoad.getClass().getClassLoader()).asInstanceOf[URLClassLoader].getURLs.mkString(",\n"))
+
     val path =
-      if (args.length != 1) {
+      if (rest.length != 1) {
         System.err.println("no tracefile given (or too many), defaulting to "+defaultTracefile)
         defaultTracefile
       } else {
-        args(0)
+        rest(0)
     }
     println("spencer cassandra loader starting...")
-    println("loading "+path)
+    println("loading "+path+" as '"+name+"'")
 
 //    analysis.Util.assertProperCallStructure(new TraceFileIterator(tracefile))
 
-    val db = new SpencerDB("test")
+    val db = new SpencerDB(name)
     db.loadFrom(getInputStream(path))
     println("done")
     sys.exit(0)
