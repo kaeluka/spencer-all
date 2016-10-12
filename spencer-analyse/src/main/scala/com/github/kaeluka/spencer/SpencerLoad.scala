@@ -18,6 +18,8 @@ object SpencerLoad {
 
   def main(args: Array[String]) {
 
+    println(args.mkString(", "))
+
     val tracefile: File =
       if (args.length != 1) {
 //        sys.error("usage: java "+this.getClass.getName+" path/to/tracefile")
