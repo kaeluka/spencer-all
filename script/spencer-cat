@@ -1,0 +1,5 @@
+#! /usr/bin/env bash
+
+readonly DIR=$(dirname $0)
+
+cd ${DIR}/../spencer-analyse; mvn --quiet exec:exec -Dexec.args="-cp %classpath com.github.kaeluka.spencer.analysis.spencercat $1" -Dexec.executable="java"

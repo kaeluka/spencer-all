@@ -16,23 +16,16 @@ object spencercat extends App {
       System.err.println("Warning: no file given, using default file instead: "+defaultFile)
       new TraceFile(new FileInputStream(defaultFile)).iterator
     } else {
+      System.out.println("using: "+args(0))
       new TraceFile(new FileInputStream(new File(args(0)))).iterator
     }
 
     var cnt = 1
     while (iter.hasNext) {
       val evt: AnyEvt.Reader = iter.next
-//      if (cnt >= 1355812 && cnt <= 1356115) {
       val string: String = EventsUtil.messageToString(evt)
-      if (string.contains("-91972")) {
-        println("#" + cnt + ": " + string) //.replace("89173", "<THE OBJECT>"))
-      }
-//      }
+      println("#" + cnt + ": " + string)
       cnt += 1
-      //      if (cnt > 1521795+100) {
-      //        sys.exit(0)
-      //        LogManager
-      //      }
     }
   }
 }
