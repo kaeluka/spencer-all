@@ -16,7 +16,7 @@ import sun.nio.cs.StreamDecoder
 object Util {
 
   def isTrickyThreadName(name: String) : Boolean = {
-    name == "DestroyJavaVM" || name.startsWith("<")
+    name == "DestroyJavaVM" || name.startsWith("<") || name == "Finalizer"
   }
 
   def assertProperCallStructure(it: TraceFileIterator) {
