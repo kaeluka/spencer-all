@@ -355,7 +355,7 @@ class SpencerDB(val keyspace: String) {
   }
 
 
-  def loadFrom(f : InputStream) {
+  def loadFrom(path: String) {
 
     var hadLateInits = false
     var doneWithHandleInits = false
@@ -363,7 +363,7 @@ class SpencerDB(val keyspace: String) {
 
     this.connect(true)
 
-    val events = new TraceFile(f).iterator
+    val events = TraceFiles.fromPath(path).iterator
     var i : Long = 1
     while (events.hasNext) {
       val evt: AnyEvt.Reader = events.next

@@ -2,7 +2,9 @@ package com.github.kaeluka.spencer
 
 import java.io._
 import java.net.URLClassLoader
-import java.util.zip.{ZipEntry, ZipFile}
+import java.util.zip.ZipEntry
+
+import org.apache.commons.compress.archivers.zip.{ZipArchiveEntry, ZipFile}
 
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
 
@@ -11,27 +13,6 @@ object SpencerLoad {
 //  val defaultTracefile = "/Volumes/MyBook/tracefiles/pmd.small/tracefile"
 //  val defaultTracefile = "/tmp/tracefile"
   val defaultTracefile = "/tmp/tracefile.zip"
-
-  def getInputStream(path: String) : InputStream = {
-    if (!new File(path).exists()) {
-      throw new FileNotFoundException("file "+path+" does not exist for loading")
-    }
-    if (path.endsWith(".zip")) {
-      val zip: ZipFile = new ZipFile(path)
-      val entries = zip.entries()
-      var ret : InputStream = null
-      while (entries.hasMoreElements && ret == null) {
-        val element: ZipEntry = entries.nextElement()
-        if (element.getName == "tracefile") {
-          ret = zip.getInputStream(element)
-        }
-      }
-      ret
-    } else {
-      new FileInputStream(new File(path))
-    }
-  }
-
 
   def main(args: Array[String]) {
     println(args.mkString(", "))
@@ -59,7 +40,7 @@ object SpencerLoad {
 //    analysis.Util.assertProperCallStructure(new TraceFileIterator(tracefile))
 
     val db = new SpencerDB(name)
-    db.loadFrom(getInputStream(path))
+    db.loadFrom(path)
     println("done")
     sys.exit(0)
   }
