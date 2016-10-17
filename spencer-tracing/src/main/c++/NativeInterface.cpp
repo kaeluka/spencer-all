@@ -172,13 +172,10 @@ void doFramePop(std::string mname, std::string cname) {
 }
 
 inline bool isInLivePhase() {
-  /*
-    jvmtiPhase phase;
-    jvmtiError err = g_jvmti->GetPhase(&phase);
-    ASSERT_NO_JVMTI_ERR(g_jvmti, err);
-    return (phase == JVMTI_PHASE_LIVE);
-  */
-  return g_init;
+  jvmtiPhase phase;
+  jvmtiError err = g_jvmti->GetPhase(&phase);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+  return (phase == JVMTI_PHASE_LIVE);
 }
 
 #define REQUIRE_LIVE() {if (!isInLivePhase()) { return; } }
@@ -502,8 +499,8 @@ std::string getTypeForObj(JNIEnv *jni_env, jobject obj) {
 
   // we tag the string as not instrumented, as we don't want it to end up in the data!
   jvmtiError err = g_jvmti->SetTag(name, NativeInterface_SPECIAL_VAL_NOT_INSTRUMENTED);
-  if (err == JVMTI_ERROR_INVALID_OBJECT) {
-    WARN("got JVMTI_ERROR_INVALID_OBJECT");
+  if (err == JVMTI_ERROR_INVALID_OBJECT || err == JVMTI_ERROR_WRONG_PHASE) {
+    WARN("got JVMTI_ERROR_INVALID_OBJECT or JVMTI_ERROR_WRONG_PHASE");
   } else {
     ASSERT_NO_JVMTI_ERR(g_jvmti, err);
   }
