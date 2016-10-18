@@ -117,6 +117,20 @@
                 </executions>
             </plugin>
 
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>appassembler-maven-plugin</artifactId>
+                <version>1.10</version>
+                <configuration>
+                    <programs>
+                        <program>
+                            <mainClass>com.github.kaeluka.spencer.SpencerLoad</mainClass>
+                            <id>spencer-load</id>
+                        </program>
+                    </programs>
+                </configuration>
+            </plugin>
+
         </plugins>
     </build>
 
