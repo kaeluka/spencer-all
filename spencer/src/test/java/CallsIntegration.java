@@ -7,6 +7,8 @@ import org.junit.Before;
 import org.junit.Test;
 import util.SpencerRunner;
 
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,14 +33,14 @@ public class CallsIntegration {
      * on the call stack
      */
     @Test
-    public void callStructureMatches() {
+    public void callStructureMatches() throws FileNotFoundException {
 
         final TraceFileIterator it = getTraceFileIterator(runResult.getTracefile());
         Util.assertProperCallStructure(it);
     }
 
     @Test
-    public void callsInRightOrder() {
+    public void callsInRightOrder() throws FileNotFoundException {
         final TraceFileIterator it = getTraceFileIterator(this.runResult.getTracefile());
         assertThat("MethodCalls::main class call must be called",
                 seekCall(it, "MethodCalls", "main"), is(true));
@@ -67,7 +69,7 @@ public class CallsIntegration {
     }
 
     private static TraceFileIterator getTraceFileIterator(
-            Path tracefile) {
-        return new TraceFileIterator(tracefile.toFile());
+            Path tracefile) throws FileNotFoundException {
+        return new TraceFileIterator(new FileInputStream(tracefile.toFile()));
     }
 }

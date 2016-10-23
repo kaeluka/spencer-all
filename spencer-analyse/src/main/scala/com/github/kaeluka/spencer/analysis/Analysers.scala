@@ -59,7 +59,7 @@ case class Klass() extends SpencerAnalyser[RDD[String]] {
 
 case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
   override def analyse(implicit g: SpencerData): RDD[T] = {
-    if (inner.isInstanceOf[Snapshotted[_]]) {
+    if (true || inner.isInstanceOf[Snapshotted[_]]) {
       inner.analyse
     } else {
       val queryString = inner.toString
@@ -222,24 +222,26 @@ case class RddAnalyser[T](inner: SpencerAnalyser[RDD[T]]) extends SpencerAnalyse
 //  }
 //}
 
-case class WithClassName(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(Long, Option[String])]] {
+case class WithMetaInformation(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(Long, Option[String], Option[String])]] {
 
-  override def analyse(implicit g: SpencerData): RDD[(Long, Option[String])] = {
+  override def analyse(implicit g: SpencerData): RDD[(Long, Option[String], Option[String])] = {
     val matchingIDs: RDD[VertexId] = inner.analyse(g)
 
 //    matchingIDs.
     g.db.getTable("objects")
       .where("id IN ?", matchingIDs.collect().toList)
-      .select("id", "klass")
-      .map(row => (row.getLong("id"), row.getStringOption("klass")))
+      .select("id", "klass", "allocationsitefile", "allocationsiteline")
+      .map(row =>
+        (
+          row.getLong("id"),
+          row.getStringOption("klass"),
+          row.getStringOption("allocationsitefile").flatMap(file => row.getLongOption("allocationsiteline").map(file+":"+_))))
   }
 
-  override def pretty(result: RDD[(Long, Option[String])]): String = {
+  override def pretty(result: RDD[(Long, Option[String], Option[String])]): String = {
 
     "Satisfying "+inner+":\n\t"+
-      result.filter(_._2.isDefined).map(x=>(x._1, x._2.get)).collect().mkString(", ")+
-      "\n\t with unknown types:\n\t"+
-      result.filter(_._2.isEmpty).map(_._1).collect().mkString(", ")
+      result.collect().mkString("\n")
   }
 
 }
