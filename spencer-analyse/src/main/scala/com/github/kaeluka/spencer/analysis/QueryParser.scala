@@ -20,6 +20,12 @@ object QueryParser {
   def deeply =
     P("Deeply("~objQuery~")").map(Deeply(_))
 
+  def constSet =
+    P("Set(" ~ (number.rep(sep = ",")).map(_.toSet) ~")").map(set => ConstSeq(set.toSeq))
+
+  def number : P[Long] =
+    CharIn('0' to '9').rep(1).!.map(_.toLong)
+
   def instanceOfKlass =
     P("InstanceOfClass("~className~")")
    .map(InstanceOfClass(_))
@@ -32,7 +38,7 @@ object QueryParser {
     P("IsNot("~objQuery~")").map(IsNot(_))
 
   def parameterisedObjQuery : P[SpencerAnalyser[RDD[VertexId]]] =
-    connectedWith | deeply | instanceOfKlass | isNot
+    connectedWith | deeply | instanceOfKlass | constSet | isNot
 
   def binaryOpObjQuery : P[SpencerAnalyser[RDD[VertexId]]] =
     P(objQuery ~ " "~("and"|"or").! ~" " ~ objQuery).map({

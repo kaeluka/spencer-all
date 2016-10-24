@@ -111,7 +111,6 @@ class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         private final String signature;
         private final String classDescr;
 
-
         // sometimes, we need to track the variables that have been assigned, as
         // otherwise, we might log the old value on unitialised
         // vars. The JVM doesn't want this.
@@ -163,13 +162,13 @@ class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         }
 
         void runtimeWarning(String c) {
-            final String msg = "====== " + this.getClass().getSimpleName()+" ("+InstrumentationVisitor.this.getSourceFileName()+":"+this.lastVisitedLine
+            final String msg = "====== " + this.getClass().getSimpleName()+" ("+this.getLastVisitedLocation()
                     + ") WARNING: " + c;
             this.emitPrintln(msg);
         }
 
         protected void instrumentationWarning(String c) {
-            final String msg = "====== " + this.getClass().getSimpleName()+" ("+InstrumentationVisitor.this.getSourceFileName()+":"+this.lastVisitedLine
+            final String msg = "====== " + this.getClass().getSimpleName()+" ("+this.getLastVisitedLocation()
                     + ") WARNING: " + c;
             if (Instrument.enableComments && Instrument.loudWarnings) {
                 System.err.println(msg);
@@ -183,7 +182,7 @@ class InstrumentationVisitor extends ClassVisitor implements Opcodes {
         }
 
         protected void comment(String c) {
-            final String msg = "====== " + this.getClass().getSimpleName()+" ("+InstrumentationVisitor.this.getSourceFileName()+":"+this.lastVisitedLine
+            final String msg = "====== " + this.getClass().getSimpleName()+" ("+this.getLastVisitedLocation()
                     + ") COMMENT: " + c;
             if (Instrument.enableComments) {
                 if (Instrument.loudWarnings) {
@@ -681,7 +680,6 @@ class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                 }
                 //..holder,val,SPECIAL_VAL_xxx,NULL|holder,holder
                 final String mName = this.getMethodName();
-                final String loc = this.getLastVisitedLocation();
 
                 super.visitLdcInsn(holderClass); //..holder,val,SPECIAL_VAL_xxx,NULL|holder,holderclass
                 super.visitLdcInsn(fName);       //..holder,val,SPECIAL_VAL_xxx,NULL|holder,holderclass,fname

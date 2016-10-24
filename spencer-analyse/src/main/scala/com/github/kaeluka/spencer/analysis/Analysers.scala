@@ -615,6 +615,16 @@ object ProportionPerAllocationSite {
   }
 }
 
+case class ConstSeq[T: ClassTag](value: Seq[T]) extends SpencerAnalyser[RDD[T]] {
+  override def analyse(implicit g: SpencerData): RDD[T] = {
+    g.db.sc.parallelize(value)
+  }
+
+  override def pretty(result: RDD[T]): String = {
+    value.mkString("[ ", ", ", " ]")
+  }
+}
+
 case class Const[T](value: T) extends SpencerAnalyser[T] {
   override def analyse(implicit g: SpencerData): T = value
 

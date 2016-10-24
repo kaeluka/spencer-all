@@ -768,7 +768,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
     AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
     capnp::MallocMessageBuilder innermessage;
     MethodEnterEvt::Builder msgbuilder =
-      innermessage.initRoot<MethodEnterEvt>();
+    innermessage.initRoot<MethodEnterEvt>();
     msgbuilder.setName(nameStr);
     msgbuilder.setSignature(toStdString(env, signature));
     msgbuilder.setCalleeclass(toStdString(env, calleeClass));
