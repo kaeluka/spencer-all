@@ -20,7 +20,7 @@ object QueryParser {
   def deeply =
     P("Deeply("~objQuery~")").map(Deeply(_))
 
-  def constSet
+  def constSet =
     P("Set(" ~ (number.rep(sep = " ")).map(_.toSet) ~")").map(set => ConstSeq(set.toSeq))
 
   def number : P[Long] =
