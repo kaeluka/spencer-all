@@ -14,24 +14,24 @@ object QueryParser {
     primitiveObjQuery | parameterisedObjQuery
 
   def connectedWith =
-    P("ConnectedWith("~objQuery~")").map(ConnectedWith(_)) |
-      P("ConnectedWith("~objQuery~", reverse)").map(ConnectedWith(_, reverse = true))
+    P("ReachableFrom("~objQuery~")").map(ConnectedWith(_)) |
+      P("CanReach("~objQuery~")").map(ConnectedWith(_, reverse = true))
 
   def deeply =
     P("Deeply("~objQuery~")").map(Deeply(_))
 
-  def constSet =
-    P("Set(" ~ (number.rep(sep = ",")).map(_.toSet) ~")").map(set => ConstSeq(set.toSeq))
+  def constSet
+    P("Set(" ~ (number.rep(sep = " ")).map(_.toSet) ~")").map(set => ConstSeq(set.toSeq))
 
   def number : P[Long] =
-    CharIn('0' to '9').rep(1).!.map(_.toLong)
+    ("-".? ~ CharIn('0' to '9')).rep(1).!.map(_.toLong)
 
   def instanceOfKlass =
     P("InstanceOfClass("~className~")")
    .map(InstanceOfClass(_))
 
   def className: P[String] = {
-    P((CharIn('a' to 'z') | CharIn('A' to 'Z') | "." | "$").rep.!)
+    P((CharIn('a' to 'z') | CharIn('A' to 'Z') | "." | "[" | "$").rep.!)
   }
 
   def isNot =
