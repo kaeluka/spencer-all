@@ -144,7 +144,7 @@ case class VertexIdAnalyser(inner: SpencerAnalyser[RDD[VertexId]]) extends Spenc
   def or(other: VertexIdAnalyser) : SpencerAnalyser[RDD[VertexId]] = {
     new SpencerAnalyser[RDD[VertexId]] {
       override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-        inner.analyse.union(other.analyse).distinct()
+        inner.analyse.union(other.analyse)
       }
 
       override def pretty(result: RDD[VertexId]): String = {
