@@ -16,9 +16,11 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 import scala.collection.JavaConversions._
 
-/**
-  * Created by stebr742 on 2016-07-01.
-  */
+case class AproposUseEvent(idx: Long, caller: VertexId, callee: VertexId, msg: String)
+case class AllocationRecord(msg: String)
+
+case class AproposData(alloc: AllocationRecord, evts: Seq[AproposUseEvent])
+
 class SpencerDB(val keyspace: String) {
   def shutdown() = {
     this.session.close()
@@ -199,7 +201,8 @@ class SpencerDB(val keyspace: String) {
       if (saveOrigin) comment else ""))
   }
 
-  def aproposObject(tag: Long): String = {
+
+  def aproposObject(tag: Long): AproposData = {
     val objTable: CassandraTableScanRDD[CassandraRow] = getTable("objects")
 
     val theObj : RDD[CassandraRow] = objTable
@@ -209,16 +212,16 @@ class SpencerDB(val keyspace: String) {
 //      .map(_.getStringOption("klass"))
 //      .collect
 
-    var ret = tag+ " :: "
+    var allocMsg  = ""
     if (theObj.count == 0) {
-      ret += "<not initialised>\n"
+      allocMsg += "<not initialised>\n"
     } else {
-      ret += theObj.collect.mkString(", ")+"\n"
-      ret += "allocated at:\n  - "
-      ret += theObj
+      allocMsg += theObj.collect.mkString(", ")+"\n"
+      allocMsg += "allocated at:\n  - "
+      allocMsg += theObj
         .map(row => row.getStringOption("allocationsitefile").toString ++":"++row.getLongOption("allocationsiteline").toString)
         .collect.mkString("\n  - ")
-      ret += "\n"
+      allocMsg += "\n"
     }
 
     val usesTable: CassandraTableScanRDD[CassandraRow] = this.getTable("uses")
@@ -226,31 +229,30 @@ class SpencerDB(val keyspace: String) {
       (usesTable.where("caller = ?", tag) ++
         usesTable.where("callee = ?", tag))
         .map(row=>
-          (row.getLong("idx"), row.toString())
+          (row.getLong("idx"), row.getLong("caller"), row.getLong("callee"), row.getString("comment"))
 //            "object "+row.getLong("caller")+", method "+row.getString("method")+":\t"+row.getString("kind")+"\tof object\t"+row.getLong("callee"))
         )
         .sortBy(_._1)
 
-    ret += "uses:\n  "
-    if (uses.count == 0) {
-      ret += "  <no uses>\n"
-    } else {
-      ret += uses.collect.mkString("\n  ")+"\n"
+    val useEvents = uses.collect.map {
+      case ((idx, caller, callee, comment)) => AproposUseEvent(idx, caller, callee, comment)
     }
 
-    val refsTable: CassandraTableScanRDD[CassandraRow] = this.getTable("refs")
-    val refs : RDD[CassandraRow] =
-      refsTable.where("caller = ?", tag) ++
-        refsTable.where("callee = ?", tag)
+//    val refsTable: CassandraTableScanRDD[CassandraRow] = this.getTable("refs")
+//    val refs : RDD[CassandraRow] =
+//      refsTable.where("caller = ?", tag) ++
+//        refsTable.where("callee = ?", tag)
+//
+//    ret += "references from/to the object:\n  - "
+//    if (refs.count == 0) {
+//      ret += "<no references>\n"
+//    } else {
+//      ret += refs.collect.mkString("\n  - ")+"\n"
+//    }
+//
+//    ret.replaceAll(" "+tag+" ", " <THE OBJECT>")
 
-    ret += "references from/to the object:\n  - "
-    if (refs.count == 0) {
-      ret += "<no references>\n"
-    } else {
-      ret += refs.collect.mkString("\n  - ")+"\n"
-    }
-
-    ret.replaceAll(" "+tag+" ", " <THE OBJECT>")
+    AproposData(AllocationRecord(allocMsg), useEvents)
 
   }
 

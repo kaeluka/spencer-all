@@ -1,12 +1,14 @@
 package com.github.kaeluka.spencer.analysis
+import com.github.kaeluka.spencer.tracefiles._
 import org.apache.spark.graphx.VertexId
 
-case class Apropos(id: VertexId) extends SpencerAnalyser[String] {
-  override def analyse(implicit g: SpencerData): String = {
+
+case class Apropos(id: VertexId) extends SpencerAnalyser[AproposData] {
+  override def analyse(implicit g: SpencerData): AproposData = {
     g.db.aproposObject(id)
   }
 
-  override def pretty(result: String): String = {
-    result
+  override def pretty(result: AproposData): String = {
+    result.toString
   }
 }
