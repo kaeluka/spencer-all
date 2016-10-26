@@ -3,30 +3,15 @@ package com.github.kaeluka.spencer.analysis
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
 import java.nio.ByteBuffer
 
-import com.datastax.driver.core.utils.Bytes
 import com.datastax.spark.connector.CassandraRow
-import com.datastax.spark.connector.rdd.CassandraTableScanRDD
-import com.esotericsoftware.kryo.serializers.DefaultSerializers.StringSerializer
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
 import com.google.common.base.Stopwatch
-import org.apache.spark.graphx.{EdgeDirection, VertexId}
+import org.apache.spark.graphx.VertexId
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.catalyst.expressions.Base64
 
-import scala.reflect.ClassTag
-import scala.reflect._
-import scala.runtime.Nothing$
-
-//trait SpencerAnalyser[D, T] {
-//  def analyse(implicit data: D) : T
-//  def pretty(result: T): String
-//}
-
-//trait SpencerDBAnalyser[T] {
-//  def analyse(implicit db: SpencerDB) : T
-//  def pretty(result: T): String
-//}
+import scala.language.implicitConversions
+import scala.reflect.{ClassTag, _}
 
 trait SpencerAnalyser[T] {
   def analyse(implicit g: SpencerData) : T
@@ -72,13 +57,13 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
         val ostream: ObjectOutputStream = new ObjectOutputStream(baostream)
         ostream.writeObject(result.collect())
 
-        val resultSerialised = ByteBuffer.wrap(baostream.toByteArray())
-        println("snapshot for query "+queryString+": writing "+(resultSerialised.array().length)+" bytes")
+        val resultSerialised = ByteBuffer.wrap(baostream.toByteArray)
+        println(s"snapshot for query $queryString: writing ${resultSerialised.array().length} bytes")
         g.db.session.execute("INSERT INTO "+g.db.session.getLoggedKeyspace+".snapshots (query, result) VALUES (?, ?);", queryString, resultSerialised)
         result
       } else {
         val resultSerialised = snapshots .take(1)(0).getBytes("result")
-        println("snapshot for query "+queryString+": reading "+(resultSerialised.array().length)+" bytes")
+        println(s"snapshot for query $queryString: reading ${resultSerialised.array().length} bytes")
         val ois: ObjectInputStream = new ObjectInputStream(new ByteArrayInputStream(resultSerialised.array()))
         g.db.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
       }
@@ -97,19 +82,6 @@ object AnalyserImplicits {
     RddAnalyser(a)
   }
 }
-
-//object VertexIdAnalyser {
-//  def vertexRddToString(rdd: RDD[VertexId]) : String = {
-//    val count: VertexId = rdd.count()
-//    if (count > 50) {
-//      rdd
-//        .takeSample(withReplacement = false, num = 50, seed = 0)
-//        .mkString(count+" objects\t- [ ", ", ", ", ... ]")
-//    } else {
-//      rdd.collect().mkString(count+" objects\t- [ ", ", ", " ]")
-//    }
-//  }
-//}
 
 case class VertexIdAnalyser(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[Long]] {
   override def analyse(implicit g: SpencerData): RDD[VertexId] = {
@@ -179,7 +151,6 @@ case class VertexIdAnalyser(inner: SpencerAnalyser[RDD[VertexId]]) extends Spenc
       override def pretty(result: Map[(Boolean, Boolean), RDD[VertexId]]): String = {
         var ret = ""
         for (k <- result.keysIterator) {
-          val collected: Array[VertexId] = result(k).collect()
           ret = ret + (if (k._1) "    " else "not ")+inner.toString+(if (k._2) ",     " else ", not ")+other.toString+": "+SpencerAnalyserUtil.rddToString(result(k))+"\n"
         }
         ret
@@ -476,9 +447,9 @@ case class Deeply(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser
 }
 
 //case class PerClass(prop: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[String]] {
-//  override def analyse(implicit g: SpencerGraph): RDD[String] = {
+//  override def analyse(implicit g: SpencerData): RDD[String] = {
 //    val propObjs = prop.analyse
-//    val table: Array[(String, RDD[VertexId])] = TabulateRDD(AllClasses(), InstanceOfClass).analyse
+//    val table: Array[(String, RDD[VertexId])] = TabulateRDD(Obj(), InstanceOfClass).analyse
 //    val passed = table.flatMap({
 //      case (klass, instances) =>
 //        if (instances.subtract(propObjs).isEmpty()) {
@@ -503,10 +474,9 @@ case class ClassProperty(prop: SpencerAnalyser[RDD[VertexId]]) extends SpencerAn
       .filter(_._1.nonEmpty)
       .map({case (someKlass, objs) => (someKlass.get, objs)})
     classVsObjs.filter({
-      case (klass, objs) => {
+      case (klass, objs) =>
         val objsSet: Set[Long] = objs.flatMap(_.getLongOption("id")).toSet
         objsSet.subsetOf(propObjs)
-      }
     }).map(_._1)
 
   }
@@ -521,6 +491,40 @@ object DeeplyImmutableClass {
     ClassProperty(Deeply(ImmutableObj()))
 }
 
+case class GroupByClass(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(Option[String], Iterable[VertexId])]] {
+  override def analyse(implicit g: SpencerData): RDD[(Option[String], Iterable[VertexId])] = {
+    val innerCollected = inner.analyse.collect()
+    g.db.getTable("objects")
+      .select("klass", "id")
+      .where("id IN ?", innerCollected.toList)
+      .map(row => (row.getStringOption("klass"), row.getLong("id")))
+      .groupBy(_._1)
+      .map {
+        case (oKlass, iter) =>
+          (oKlass, iter.map(_._2))
+      }
+  }
+
+  override def pretty(result: RDD[(Option[String], Iterable[VertexId])]): String = {
+    val collected =
+      (if (result.count() < 1000) {
+        result.sortBy(_._2.size*(-1))
+      } else {
+        result
+      }).collect()
+
+    this.toString+":\n"+
+      collected.map({
+        case (allocationSite, instances) =>
+          val size = instances.size
+          allocationSite+"\t-\t"+(if (size > 50) {
+            instances.take(50).mkString("\t"+size+" x - [ ", ", ", " ... ]")
+          } else {
+            instances.mkString("\t"+size+" x - [ ", ", ", " ]")
+          })
+      }).mkString("\n")
+  }
+}
 case class GroupByAllocationSite(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[((Option[String], Option[Long]), Iterable[VertexId])]] {
   override def analyse(implicit g: SpencerData): RDD[((Option[String], Option[Long]), Iterable[VertexId])] = {
     val innerCollected = inner.analyse.collect()
@@ -584,6 +588,22 @@ case class ObjWithInstanceCountAtLeast(n : Int) extends SpencerAnalyser[RDD[Vert
   }
 }
 
+case class PerClass[U: ClassTag](f : (Option[String], Iterable[VertexId]) => Option[U]) extends SpencerAnalyser[RDD[U]] {
+  override def analyse(implicit g: SpencerData): RDD[U] = {
+    val innerObjs: Set[VertexId] = Obj().analyse.collect().toSet[VertexId]
+    val grouped: RDD[(Option[String], Iterable[VertexId])] =
+      GroupByClass(Obj()).analyse
+    if (classTag[U].toString.contains("RDD") /* hack */) {
+      grouped.flatMap({case (loc, it) => f(loc, it)})
+    } else {
+      g.db.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
+    }
+  }
+
+  override def pretty(result: RDD[U]): String = {
+    result.collect().mkString(this.toString+":\n\t - ", "\n\t - ", "")
+  }
+}
 case class PerAllocationSite[U: ClassTag](f : ((Option[String], Option[Long]), Iterable[VertexId]) => Option[U]) extends SpencerAnalyser[RDD[U]] {
   override def analyse(implicit g: SpencerData): RDD[U] = {
     val innerObjs: Set[VertexId] = Obj().analyse.collect().toSet[VertexId]
@@ -601,16 +621,22 @@ case class PerAllocationSite[U: ClassTag](f : ((Option[String], Option[Long]), I
   }
 }
 
+object ProportionPerClass {
+  def apply(inner: SpencerAnalyser[RDD[VertexId]])(implicit g: SpencerData) : SpencerAnalyser[RDD[(Option[String], (Int, Int))]] = {
+    val innerSet = inner.analyse.collect().toSet
+    PerClass({case (loc, iter) => {
+      val instances: Set[VertexId] = iter.toSet
+      Some((loc, ((instances intersect innerSet).size, instances.size)))
+    }})
+  }
+}
+
 object ProportionPerAllocationSite {
-  def apply(inner: SpencerAnalyser[RDD[VertexId]])(implicit g: SpencerData) : SpencerAnalyser[RDD[((Option[String],Option[Long]), (Int, Int))]] = {
+  def apply(inner: SpencerAnalyser[RDD[VertexId]])(implicit g: SpencerData) : SpencerAnalyser[RDD[((Option[String], Option[Long]), (Int, Int))]] = {
     val innerSet = inner.analyse.collect().toSet
     PerAllocationSite({case (loc, iter) => {
-      if (iter.size >= 10) {
-        val allocSiteObjs: Set[VertexId] = iter.toSet
-        Some((loc, ((allocSiteObjs intersect innerSet).size, allocSiteObjs.size)))
-      } else {
-        None
-      }
+      val allocSiteObjs: Set[VertexId] = iter.toSet
+      Some((loc, ((allocSiteObjs intersect innerSet).size, allocSiteObjs.size)))
     }})
   }
 }
@@ -687,8 +713,6 @@ object Scratch extends App {
   def run: Unit = {
     val db: SpencerDB = new SpencerDB("test")
     db.connect()
-
-    import AnalyserImplicits._
 
     val watch: Stopwatch = Stopwatch.createStarted()
     implicit val g: SpencerData = SpencerGraphImplicits.spencerDbToSpencerGraph(db)
