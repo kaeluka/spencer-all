@@ -12,7 +12,7 @@ object QueryParser {
 //    objQuery.rep(2, sep="and").map(_.reduce(_ and _)) | objQuery.rep(2, sep="or").map(_.reduce(_ or _)) | objQuery
 
   def objQuery: P[SpencerAnalyser[RDD[VertexId]]] =
-    (primitiveObjQuery | parameterisedObjQuery)
+    primitiveObjQuery | parameterisedObjQuery
 
   def connectedWith =
     P("ReachableFrom("~objQuery~")").map(ConnectedWith(_)) |
@@ -32,8 +32,16 @@ object QueryParser {
    .map(InstanceOfClass)
 
   def className: P[String] = {
-    P((CharIn('a' to 'z') | CharIn('A' to 'Z') | "." | "[" | "$").rep.!)
+    P((CharIn('a' to 'z') | CharIn('A' to 'Z') | "." | "[" | "$" | ";").rep.!)
   }
+
+  def allocatedAt =
+    P("AllocatedAt("~location~")")
+      .map(AllocatedAt)
+
+  def location: P[(Option[String], Option[Long])] =
+    P((CharIn('a' to 'z') | "_").rep(1).! ~ ":" ~ number)
+    .map({case (file, line) => (Some(file), Some(line))})
 
   def bigOr =
     P("Or("~objQuery.rep(2, sep=" ")~")").map(_.reduce(_ and _))
@@ -42,10 +50,10 @@ object QueryParser {
     P("And("~objQuery.rep(2, sep=" ")~")").map(_.reduce(_ and _)) | P(objQuery.rep(2, sep=" and ").map(_.reduce(_ and _)))
 
   def isNot =
-    P("IsNot("~objQuery~")").map(IsNot)
+    P("Not("~objQuery~")").map(IsNot)
 
   def parameterisedObjQuery : P[SpencerAnalyser[RDD[VertexId]]] =
-    connectedWith | deeply | instanceOfKlass | constSet | isNot | bigAnd | bigOr
+    connectedWith | deeply | instanceOfKlass | allocatedAt | constSet | isNot | bigAnd | bigOr
 
 //  def binaryOpObjQuery : P[SpencerAnalyser[RDD[VertexId]]] =
 //    P(objQuery ~ " "~("and"|"or").! ~" " ~ objQuery).map({

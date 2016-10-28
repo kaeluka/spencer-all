@@ -328,6 +328,21 @@ case class Count[T <: SpencerAnalyser[RDD[Any]]](inner: T) extends SpencerAnalys
   override def pretty(result: Long): String = this.toString+": "+result
 }
 
+case class AllocatedAt(allocationSite: (Option[String], Option[Long])) extends SpencerAnalyser[RDD[VertexId]] {
+
+  override def analyse(implicit g: SpencerData): RDD[VertexId] = {
+    g.db.getTable("objects")
+      .filter(row =>
+        allocationSite ==
+          (row.getStringOption("allocationsitefile")
+          ,row.getLongOption("allocationsiteline")))
+      .map(_.getLong("id"))
+  }
+
+  override def pretty(result: RDD[VertexId]): String = {
+    "Allocated at "+allocationSite+":\n\t"+result.collect().mkString(", ")
+  }
+}
 case class InstanceOfClass(klassName: String) extends SpencerAnalyser[RDD[VertexId]] {
 
   def this(klass: Class[_]) =
