@@ -40,7 +40,7 @@ object QueryParser {
       .map(AllocatedAt)
 
   def location: P[(Option[String], Option[Long])] =
-    P((CharIn('a' to 'z') | "_").rep(1).! ~ ":" ~ number)
+    P((CharIn('a' to 'z') | CharIn('A' to 'Z') | "_" | ".").rep(1).! ~ ":" ~ number)
     .map({case (file, line) => (Some(file), Some(line))})
 
   def bigOr =
