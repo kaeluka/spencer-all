@@ -1,7 +1,8 @@
 package com.github.kaeluka.spencer.analysis
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
+import java.io._
 import java.nio.ByteBuffer
+import java.nio.charset.StandardCharsets
 
 import com.datastax.spark.connector.CassandraRow
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
@@ -12,6 +13,8 @@ import org.apache.spark.rdd.RDD
 
 import scala.language.implicitConversions
 import scala.reflect.{ClassTag, _}
+import org.objectweb.asm.{ClassReader, ClassVisitor}
+import org.objectweb.asm.util.TraceClassVisitor
 
 trait SpencerAnalyser[T] {
   def analyse(implicit g: SpencerData) : T
@@ -57,7 +60,7 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
         val ostream: ObjectOutputStream = new ObjectOutputStream(baostream)
         ostream.writeObject(result.collect())
 
-        val resultSerialised = ByteBuffer.wrap(baostream.toByteArray)
+        val resultSerialised : ByteBuffer = ByteBuffer.wrap(baostream.toByteArray)
         println(s"snapshot for query $queryString: writing ${resultSerialised.array().length} bytes")
         g.db.session.execute("INSERT INTO "+g.db.session.getLoggedKeyspace+".snapshots (query, result) VALUES (?, ?);", queryString, resultSerialised)
         result
@@ -192,6 +195,29 @@ case class RddAnalyser[T](inner: SpencerAnalyser[RDD[T]]) extends SpencerAnalyse
 //    null
 //  }
 //}
+
+case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
+  override def analyse(implicit g: SpencerData): Option[String] = {
+    val result =
+      g.db.getTable("classdumps").where("classname = ?", klass).select("bytecode").collect()
+    assert(result.length <= 1)
+    if (result.length == 0) {
+      None
+    } else {
+      val bytecodeBuffer = result(0).getBytes("bytecode")
+      val bytecode = new Array[Byte](bytecodeBuffer.remaining())
+      bytecodeBuffer.get(bytecode)
+
+      val classreader = new ClassReader(bytecode)
+      val baos = new ByteArrayOutputStream()
+      val sw : PrintWriter = new PrintWriter(new PrintStream(baos))
+      classreader.accept(new TraceClassVisitor(sw), ClassReader.EXPAND_FRAMES)
+      Some(new String(baos.toByteArray, StandardCharsets.UTF_8))
+    }
+  }
+
+  override def pretty(result: Option[String]): String = result.toString
+}
 
 case class WithMetaInformation(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(Long, Option[String], Option[String])]] {
 

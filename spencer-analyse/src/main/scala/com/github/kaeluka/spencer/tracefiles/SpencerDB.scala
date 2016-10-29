@@ -1,7 +1,11 @@
 package com.github.kaeluka.spencer.tracefiles
 
-import java.io.{File, FileInputStream, InputStream}
+import java.io._
+import java.nio.{ByteBuffer, MappedByteBuffer}
+import java.nio.channels.FileChannel
+import java.nio.file.{Path, Paths}
 import java.util.EmptyStackException
+import java.util.function.Consumer
 
 import com.datastax.driver.core._
 import com.datastax.spark.connector.{CassandraRow, _}
@@ -10,16 +14,17 @@ import com.github.kaeluka.spencer.Events
 import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
 import com.github.kaeluka.spencer.analysis.{CallStackAbstraction, IndexedEnter, Util}
 import com.google.common.base.Stopwatch
+import org.apache.commons.io.FileUtils
 import org.apache.spark.graphx.VertexId
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
 import scala.collection.JavaConversions._
 
-case class AproposUseEvent(idx: Long, caller: VertexId, callee: VertexId, msg: String)
-case class AllocationRecord(msg: String)
+sealed trait AproposEvent
+case class AproposUseEvent(caller: VertexId, callee: VertexId, start: Long, end: Long, msg: String) extends AproposEvent
 
-case class AproposData(alloc: AllocationRecord, evts: Seq[AproposUseEvent])
+case class AproposData(alloc: Option[Map[String, Any]], evts: Seq[AproposUseEvent])
 
 class SpencerDB(val keyspace: String) {
   def shutdown() = {
@@ -205,18 +210,14 @@ class SpencerDB(val keyspace: String) {
   def aproposObject(tag: Long): AproposData = {
     val objTable: CassandraTableScanRDD[CassandraRow] = getTable("objects")
 
-    val theObj : RDD[CassandraRow] = objTable
+    val theObj = objTable
       .filter(_.getLong("id") == tag)
-      .cache
-//    theObj
-//      .map(_.getStringOption("klass"))
-//      .collect
 
     var allocMsg  = ""
     if (theObj.count == 0) {
       allocMsg += "<not initialised>\n"
     } else {
-      allocMsg += theObj.collect.mkString(", ")+"\n"
+      allocMsg += theObj.collect()(0)+"\n"
       allocMsg += "allocated at:\n  - "
       allocMsg += theObj
         .map(row => row.getStringOption("allocationsitefile").toString ++":"++row.getLongOption("allocationsiteline").toString)
@@ -230,13 +231,33 @@ class SpencerDB(val keyspace: String) {
         usesTable.where("callee = ?", tag))
         .map(row=>
           (row.getLong("idx"), row.getLong("caller"), row.getLong("callee"), row.getString("comment"))
+          //            "object "+row.getLong("caller")+", method "+row.getString("method")+":\t"+row.getString("kind")+"\tof object\t"+row.getLong("callee"))
+        )
+
+    val useEvents = uses.map {
+      case ((idx, caller, callee, comment)) => AproposUseEvent(caller, callee, idx, idx+1, comment)
+    }
+
+    val callsTable: CassandraTableScanRDD[CassandraRow] = this.getTable("calls")
+    val calls =
+      (callsTable.where("caller = ?", tag) ++
+        callsTable.where("callee = ?", tag))
+        .map(row=>
+          (row.getLong("start")
+            , row.getLong("end")
+            , row.getLong("caller")
+            , row.getLong("callee")
+            , row.getString("callsitefile")+":"+row.getLong("callsiteline")+
+            " - "+row.getString("name")+
+            " - "+row.getString("comment"))
 //            "object "+row.getLong("caller")+", method "+row.getString("method")+":\t"+row.getString("kind")+"\tof object\t"+row.getLong("callee"))
         )
-        .sortBy(_._1)
 
-    val useEvents = uses.collect.map {
-      case ((idx, caller, callee, comment)) => AproposUseEvent(idx, caller, callee, comment)
+    val callsEvents = calls.map {
+      case (start, end, caller, callee, comment) =>
+        AproposUseEvent(caller, callee, start, end, comment)
     }
+
 
 //    val refsTable: CassandraTableScanRDD[CassandraRow] = this.getTable("refs")
 //    val refs : RDD[CassandraRow] =
@@ -252,7 +273,12 @@ class SpencerDB(val keyspace: String) {
 //
 //    ret.replaceAll(" "+tag+" ", " <THE OBJECT>")
 
-    AproposData(AllocationRecord(allocMsg), useEvents)
+    val alloc = if (theObj.count > 0) {
+      Some(theObj.collect()(0).toMap)
+    } else {
+      None
+    }
+    AproposData(alloc, (useEvents++callsEvents).sortBy(_.start).collect())
 
   }
 
@@ -356,14 +382,39 @@ class SpencerDB(val keyspace: String) {
     }
   }
 
+  def storeClassFile(logDir: Path, file: File) {
+    val relPath = logDir.relativize(file.toPath)
 
-  def loadFrom(path: String) {
+    val segments = for (i <- 0 until relPath.getNameCount) yield relPath.getName(i)
+    val className = segments.mkString(".").replace(".class", "")
+    print(s"loading $className...")
+    val fileChannel = new RandomAccessFile(file, "r").getChannel
+    val bytebuffer: ByteBuffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size)
+
+    this.session.execute(
+      "INSERT INTO "+this.session.getLoggedKeyspace+".classdumps" +
+        " (classname, bytecode) VALUES (?, ?);", className, bytebuffer)
+
+    println(" done")
+  }
+
+  def loadBytecodeDir(logDir: Path) = {
+    val files = FileUtils.listFiles(logDir.toFile, null, true)
+    for (f <- files.iterator()) {
+      storeClassFile(logDir, f.asInstanceOf[File])
+    }
+  }
+
+
+  def loadFrom(path: String, logDir: Path) {
 
     var hadLateInits = false
     var doneWithHandleInits = false
     val stopwatch: Stopwatch = Stopwatch.createStarted
 
     this.connect(true)
+
+    this.loadBytecodeDir(Paths.get(logDir.toString, "input"))
 
     val events = TraceFiles.fromPath(path).iterator
     var i : Long = 1
@@ -424,6 +475,8 @@ class SpencerDB(val keyspace: String) {
         + "};")
 
     session.execute("CREATE TABLE "+keyspace+".snapshots(query text, result text, PRIMARY KEY(query));")
+
+    session.execute("CREATE TABLE "+keyspace+".classdumps(classname text, bytecode blob, PRIMARY KEY(classname));")
 
     session.execute("CREATE TABLE "+keyspace+".objects(" +
       "id bigint, " +
