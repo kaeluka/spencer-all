@@ -1,9 +1,8 @@
 package com.github.kaeluka.spencer.server;
 
 import com.github.kaeluka.spencer.instrumentation.ClassHierarchy;
-import org.apache.commons.io.FileUtils;
 import com.github.kaeluka.spencer.instrumentation.Instrument;
-import com.github.kaeluka.spencer.instrumentation.Util;
+import org.apache.commons.io.FileUtils;
 
 import java.io.*;
 import java.net.ServerSocket;

@@ -361,7 +361,7 @@ case class AllocatedAt(allocationSite: (Option[String], Option[Long])) extends S
       .filter(row =>
         allocationSite ==
           (row.getStringOption("allocationsitefile")
-          ,row.getLongOption("allocationsiteline")))
+            ,row.getLongOption("allocationsiteline")))
       .map(_.getLong("id"))
   }
 
@@ -369,6 +369,21 @@ case class AllocatedAt(allocationSite: (Option[String], Option[Long])) extends S
     "Allocated at "+allocationSite+":\n\t"+result.collect().mkString(", ")
   }
 }
+
+case class Lifetime(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(VertexId, (Long, Long))]] {
+
+  override def analyse(implicit g: SpencerData): RDD[(VertexId, (Long, Long))] = {
+    g.db.getTable("objects")
+        .select("id", "firstusage", "lastusage")
+        .where("id IN ?", inner.analyse.collect().toList)
+        .map(row => (row.getLong("id"), (row.getLong("firstusage"), row.getLong("lastusage"))))
+  }
+
+  override def pretty(result: RDD[(VertexId, (Long, Long))]): String = {
+    "Lifetimes:\n\t"+result.collect().mkString(", ")
+  }
+}
+
 case class InstanceOfClass(klassName: String) extends SpencerAnalyser[RDD[VertexId]] {
 
   def this(klass: Class[_]) =
