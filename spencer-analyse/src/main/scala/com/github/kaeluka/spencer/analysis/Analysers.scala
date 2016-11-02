@@ -74,6 +74,8 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
   }
 
   override def pretty(result: RDD[T]): String = inner.pretty(result)
+
+  override def toString: String = inner.toString
 }
 
 object AnalyserImplicits {
