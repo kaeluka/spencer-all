@@ -474,7 +474,7 @@ class SpencerDB(val keyspace: String) {
         + " 'replication_factor': '1'"
         + "};")
 
-    session.execute("CREATE TABLE "+keyspace+".snapshots(query text, result text, PRIMARY KEY(query));")
+    session.execute("CREATE TABLE "+keyspace+".snapshots(query text, result blob, PRIMARY KEY(query));")
 
     session.execute("CREATE TABLE "+keyspace+".classdumps(classname text, bytecode blob, PRIMARY KEY(classname));")
 

@@ -44,10 +44,10 @@ object QueryParser {
     .map({case (file, line) => (Some(file), Some(line))})
 
   def bigOr =
-    P("Or("~objQuery.rep(2, sep=" ")~")").map(_.reduce(_ and _))
+    P("Or("~objQuery.rep(2, sep=" ")~")").map(_.reduce(_ or _))
 
   def bigAnd =
-    P("And("~objQuery.rep(2, sep=" ")~")").map(_.reduce(_ and _)) | P(objQuery.rep(2, sep=" and ").map(_.reduce(_ and _)))
+    P("And("~objQuery.rep(2, sep=" ")~")").map(_.reduce(_ and _))
 
   def isNot =
     P("Not("~objQuery~")").map(IsNot)
@@ -74,9 +74,9 @@ object QueryParser {
     }
 
   def parseObjQuery(txt: String): Either[String, SpencerAnalyser[RDD[VertexId]]] = {
-    val res: Parsed[SpencerAnalyser[RDD[VertexId]], Char, String] = objQuery.parse(txt)
+    val res: Parsed[SpencerAnalyser[RDD[VertexId]], Char, String] = objQuery.parse(txt.replace("%20", " "))
     res match {
-      case Parsed.Success(value, _) => Right(value)
+      case Parsed.Success(value, _) => Right(Snapshotted(value))
       case Parsed.Failure(_, index, extra) =>
         Left("parsing failed :\n"+txt+"\n"+(" "*index)+"^\nrest: "+extra)
     }

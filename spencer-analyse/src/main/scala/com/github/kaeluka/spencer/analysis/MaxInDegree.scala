@@ -87,7 +87,8 @@ case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) ex
     if (p.toString().startsWith("<"))
       "InDegree(..., "+spec.toString+")"
     else {
-      (p.toString()+" from "+spec.toString).replace(" ", "_")
+      p.toString()+"()"
+//      (p.toString()+" from "+spec.toString).replace(" ", "_")
     }
   }
 }

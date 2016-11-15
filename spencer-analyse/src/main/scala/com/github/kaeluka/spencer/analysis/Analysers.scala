@@ -47,7 +47,7 @@ case class Klass() extends SpencerAnalyser[RDD[String]] {
 
 case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
   override def analyse(implicit g: SpencerData): RDD[T] = {
-    if (true || inner.isInstanceOf[Snapshotted[_]]) {
+    if (inner.isInstanceOf[Snapshotted[_]]) {
       inner.analyse
     } else {
       val queryString = inner.toString
@@ -369,6 +369,10 @@ case class AllocatedAt(allocationSite: (Option[String], Option[Long])) extends S
 
   override def pretty(result: RDD[VertexId]): String = {
     "Allocated at "+allocationSite+":\n\t"+result.collect().mkString(", ")
+  }
+
+  override def toString() : String = {
+    "AllocatedAt("+allocationSite._1.getOrElse("<any file>")+":"+allocationSite._2.map(_.toString).getOrElse("<any line>")+")"
   }
 }
 
