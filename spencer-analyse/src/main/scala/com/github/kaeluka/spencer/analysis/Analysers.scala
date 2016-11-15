@@ -294,14 +294,17 @@ case class StationaryObj() extends SpencerAnalyser[RDD[VertexId]] {
           var res : Option[VertexId] = Some(callee)
           val it: Iterator[CassandraRow] = events.iterator
           while (it.hasNext && res.nonEmpty) {
-            val kind = it.next().getString("kind")
-            if (hadRead) {
-              if (kind == "fieldstore" || kind == "modify") {
-                res = None
-              }
-            } else {
-              if (kind == "fieldload" || kind == "read") {
-                hadRead = true
+            val nxt = it.next();
+            val kind = nxt.getString("kind")
+            if (nxt.getLong("callee") == callee) {
+              if (hadRead) {
+                if (kind == "fieldstore" || kind == "modify") {
+                  res = None
+                }
+              } else {
+                if (kind == "fieldload" || kind == "read") {
+                  hadRead = true
+                }
               }
             }
           }
