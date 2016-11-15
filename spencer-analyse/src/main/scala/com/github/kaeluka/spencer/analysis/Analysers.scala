@@ -284,7 +284,7 @@ case class ImmutableObj() extends SpencerAnalyser[RDD[VertexId]] {
   }
 }
 
-case class Stationary() extends SpencerAnalyser[RDD[VertexId]] {
+case class StationaryObj() extends SpencerAnalyser[RDD[VertexId]] {
   override def analyse(implicit g: SpencerData): RDD[VertexId] = {
     g.db.getTable("uses")
       .groupBy(_.getLong("callee").asInstanceOf[VertexId])

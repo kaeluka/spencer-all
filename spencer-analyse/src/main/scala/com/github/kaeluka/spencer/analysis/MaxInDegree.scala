@@ -20,6 +20,7 @@ case class NamedFunc[T,U](p: T => U, name: String) extends Function[T, U] {
 object MaxInDegree {
   val Aliased : Function[Int, Boolean] = NamedFunc(_ > 1, "Aliased")
   val Unique : Function[Int, Boolean] = NamedFunc(_ == 1, "Unique")
+  val None : Function[Int, Boolean] = NamedFunc(_ == 0,   "None")
 
   def highestOverlap(edges : Seq[(Option[Long], Option[Long])]) : Int = {
 //    println(edges.mkString(", "))

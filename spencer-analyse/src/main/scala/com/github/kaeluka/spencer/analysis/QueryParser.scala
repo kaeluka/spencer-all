@@ -64,12 +64,18 @@ object QueryParser {
   def primitiveObjQuery : P[SpencerAnalyser[RDD[VertexId]]] =
     P(("MutableObj()"
       | "ImmutableObj()"
+      | "StationaryObj()"
       | "UniqueObj()"
+      | "HeapUniqueObj()"
+      | "StackBoundObj()"
       | "Obj()"
       ).!).map {
       case "MutableObj()" => Snapshotted(MutableObj())
       case "ImmutableObj()" => Snapshotted(ImmutableObj())
+      case "StationaryObj()" => Snapshotted(StationaryObj())
       case "UniqueObj()" => Snapshotted(MaxInDegree(MaxInDegree.Unique))
+      case "HeapUniqueObj()" => Snapshotted(MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP))
+      case "StackBoundObj()" => Snapshotted(MaxInDegree(MaxInDegree.None, InDegreeSpec.HEAP))
       case "Obj()" => Snapshotted(Obj())
     }
 
