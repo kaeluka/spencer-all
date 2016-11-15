@@ -294,9 +294,9 @@ case class StationaryObj() extends SpencerAnalyser[RDD[VertexId]] {
           var res : Option[VertexId] = Some(callee)
           val it: Iterator[CassandraRow] = events.iterator
           while (it.hasNext && res.nonEmpty) {
-            val nxt = it.next();
+            val nxt = it.next()
             val kind = nxt.getString("kind")
-            if (nxt.getLong("callee") == callee) {
+            if (nxt.getString("method") != "<init>") {
               if (hadRead) {
                 if (kind == "fieldstore" || kind == "modify") {
                   res = None
