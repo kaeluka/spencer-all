@@ -167,7 +167,7 @@ class SpencerDB(val keyspace: String) {
               case None => 4 // SPECIAL_VAL_JVM
             }
             stacks.pop(mexit) match {
-              case Left(x) => throw new AssertionError(x.toString)
+              case Left(x) => println("WARN: no matching call for "+x.toString+"! Was it transformed while the method was running?")// new AssertionError(x.toString)
               case Right(menter) =>
                 val callerTag: Long = stacks.peek(mexit.getThreadName.toString) match {
                   case Some(t) => t.enter.getCalleetag
@@ -320,8 +320,7 @@ class SpencerDB(val keyspace: String) {
 
     val usesTable: CassandraTableScanRDD[CassandraRow] = this.getTable("uses")
     val uses =
-      (usesTable.where("caller = ?", tag) ++
-        usesTable.where("callee = ?", tag))
+      usesTable.filter(row => row.getLong("caller") == tag || row.getLong("callee") == tag)
         .map(row=>
           (row.getLong("caller"),
             row.getLong("callee"),
