@@ -225,15 +225,15 @@ class SpencerDB(val keyspace: String) {
             varload.getThreadName.toString,
             EventsUtil.messageToString(evt))
         case AnyEvt.Which.VARSTORE =>
-          val varstore: Events.VarLoadEvt.Reader = evt.getVarload
+          val varstore: Events.VarStoreEvt.Reader = evt.getVarstore
           insertEdge(
-            varstore.getCallertag,
-            varstore.getVal,
-            "var",
-            "var_"+varstore.getVar,
-            varstore.getThreadName.toString,
-            idx,
-            EventsUtil.messageToString(evt))
+            caller  = varstore.getCallertag,
+            callee  = varstore.getNewval,
+            kind    = "var",
+            name    = "var_"+varstore.getVar,
+            thread  = varstore.getThreadName.toString,
+            start   = idx,
+            comment = EventsUtil.messageToString(evt))
         case other =>
           throw new IllegalStateException(
             "do not know how to handle event kind " + other)
@@ -320,7 +320,8 @@ class SpencerDB(val keyspace: String) {
 
     val usesTable: CassandraTableScanRDD[CassandraRow] = this.getTable("uses")
     val uses =
-      usesTable.filter(row => row.getLong("caller") == tag || row.getLong("callee") == tag)
+      (usesTable.where("caller = ?", tag) ++
+        usesTable.where("callee = ?", tag))
         .map(row=>
           (row.getLong("caller"),
             row.getLong("callee"),
@@ -336,29 +337,24 @@ class SpencerDB(val keyspace: String) {
     }
 
     val callsTable: CassandraTableScanRDD[CassandraRow] = this.getTable("calls")
-    val calls =
-      callsTable.filter(row => row.getLong("caller") == tag || row.getLong("callee") == tag)
+    val callsEvents =
+      (callsTable.where("caller = ?", tag) ++ callsTable.where("callee = ?", tag))
         .map(row =>
-          (row.getLong("caller")
+          AproposCallEvent(row.getLong("caller")
             , row.getLong("callee")
             , row.getLong("start")
             , row.getLong("end")
             , row.getString("name")
             , row.getString("callsitefile") + ":" + row.getLong("callsiteline")
             , row.getStringOption("thread").getOrElse("<unknown thread>")
-            , row.getString("comment"))
+            , row.getString("comment")).asInstanceOf[AproposEvent]
         )
 
-    val callsEvents = calls.map {
-      case (caller, callee, start, end, name, callsite, thread, comment) =>
-        AproposCallEvent(caller, callee, start, end, name, callsite, thread, "call "+comment).asInstanceOf[AproposEvent]
-    }
-
     val refsTable = this.getTable("refs")
-    val refs =
+    val refsEvents =
       (refsTable.where("caller = ?", tag) ++
         refsTable.where("callee = ?", tag)).map(row =>
-        (
+        AproposRefEvent(
           row.getLong("caller")
           , row.getLong("callee")
           , row.getLong("start")
@@ -366,12 +362,7 @@ class SpencerDB(val keyspace: String) {
           , row.getString("name")
           , row.getString("kind")
           , row.getStringOption("thread").getOrElse("<unknown thread>")
-          , row.getString("comment")))
-
-    val refsEvents = refs.map {
-      case (caller, callee, start, end, name, kind, thread, comment) =>
-        AproposRefEvent(caller, callee, start, end, name, kind, thread, comment).asInstanceOf[AproposEvent]
-    }
+          , row.getString("comment")).asInstanceOf[AproposEvent])
 
     val alloc = if (theObj.count > 0) {
       Some(theObj.collect()(0).toMap)
@@ -381,7 +372,7 @@ class SpencerDB(val keyspace: String) {
     AproposData(
       alloc,
       (useEvents++callsEvents++refsEvents)
-        .sortBy(AproposEvent.startTime(_)).collect(), klass)
+        .sortBy(AproposEvent.startTime).distinct().collect(), klass)
   }
 
   def getTable(table: String): CassandraTableScanRDD[CassandraRow] = {
