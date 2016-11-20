@@ -22,7 +22,7 @@ object QueryParser {
     P("Deeply("~objQuery~")").map(Deeply)
 
   def constSet =
-    P("Set(" ~ number.rep(sep = " ").map(_.toSet) ~")").map(set => ConstSeq(set.toSeq))
+    P("Set(" ~ number.rep(sep = " ").map(_.toSet) ~")").map(set => Named(ConstSeq(set.toSeq), "Set"))
 
   def number : P[Long] =
     ("-".? ~ CharIn('0' to '9')).rep(1).!.map(_.toLong)
@@ -75,7 +75,7 @@ object QueryParser {
       case "StationaryObj()" => Snapshotted(StationaryObj())
       case "UniqueObj()" => Snapshotted(MaxInDegree(MaxInDegree.Unique))
       case "HeapUniqueObj()" => Snapshotted(MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP))
-      case "StackBoundObj()" => Snapshotted(MaxInDegree(MaxInDegree.None, InDegreeSpec.HEAP))
+      case "StackBoundObj()" => Snapshotted(Named(MaxInDegree(MaxInDegree.None, InDegreeSpec.HEAP), "StackBoundObj()"))
       case "Obj()" => Snapshotted(Obj())
     }
 

@@ -269,7 +269,7 @@ case class ImmutableObj() extends SpencerAnalyser[RDD[VertexId]] {
 
     val uses =
       g.db.getTable("uses")
-        .where("callee > 0")
+        .where("callee > 4")
 
     val written =
       (uses.where("kind = 'modify'") ++ uses.where("kind = 'fieldstore'"))
@@ -286,7 +286,9 @@ case class ImmutableObj() extends SpencerAnalyser[RDD[VertexId]] {
 
 case class StationaryObj() extends SpencerAnalyser[RDD[VertexId]] {
   override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-    g.db.getTable("uses")
+    val writeAfterRead = g.db.getTable("uses")
+      .where("callee > 4")
+      .filter(! _.getString("method").equals("<init>"))
       .groupBy(_.getLong("callee").asInstanceOf[VertexId])
       .filter({
         case (callee, events) =>
@@ -308,9 +310,11 @@ case class StationaryObj() extends SpencerAnalyser[RDD[VertexId]] {
               }
             }
           }
-          res.nonEmpty
+          res.isEmpty
       })
       .map(_._1)
+
+    Obj().analyse.subtract(writeAfterRead)
   }
 
   override def pretty(result: RDD[VertexId]): String = {
@@ -783,16 +787,17 @@ object Scratch extends App {
     implicit val g: SpencerData = SpencerGraphImplicits.spencerDbToSpencerGraph(db)
 
     val query =
+//      InRefsHistory()
     //    ProportionPerAllocationSite(Deeply(MutableObj()) and ObjWithInstanceCountAtLeast(10))
     //    InstanceOfClass("Foo") vs MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP)
     //    InstanceOfClass("Foo") vs (ImmutableObj() and ImmutableObj())
     //    InstanceOfClass("java.util.TreeSet")
     //    MutableObj()
-    DeeplyImmutableClass()
+    //    DeeplyImmutableClass()
     //    InDegree(InDegree.Aliased, InDegreeSpec.HEAP) vs InDegree(InDegree.Aliased, InDegreeSpec.STACK)
     //    Mutable() vs InDegree(InDegree.Aliased)
     //    (InstanceOfClass("Foo") and Mutable()) vs (InstanceOfClass("Foo") and InDegree(InDegree.Aliased))
-    //    Apropos(90996)
+        Apropos(28740)
     //    ProportionOutOf(InstanceOfClass("[C"), AllObjects())
     //    WithClassName(InDegree(_ > 1) and Mutable())
     //    ConnectedWith(InstanceOfClass("Foo")) and Mutable()
@@ -800,7 +805,7 @@ object Scratch extends App {
     //    WithClassName(ReachableFrom(InstanceOfClass("java.lang.String")))
     //    Tabulate(AllClasses(), (klass: String) => ProportionOutOf(Immutable(), InstanceOfClass(klass)))
 
-    val res = Snapshotted(query).analyse
+    val res = query.analyse
 
     //  res.collect().foreach(id => {
     //    val query = Apropos(id)
