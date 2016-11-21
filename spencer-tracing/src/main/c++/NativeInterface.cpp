@@ -346,6 +346,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_loadArrayA
  jint callerValKind,
  jobject caller) {
   REQUIRE_LIVE();
+  LOCK;
 
   stringstream field;
   field<<"_"<<idx;
@@ -376,6 +377,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_storeArrayA
  jint callerValKind,
  jobject caller) {
   REQUIRE_LIVE();
+  LOCK;
 
   stringstream field;
   field<<"_"<<idx;
@@ -409,6 +411,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_storeArrayA
 JNIEXPORT void JNICALL Java_NativeInterface_readArray
 (JNIEnv *env, jclass nativeInterface, jobject arr, jint idx, jint callerValKind, jobject caller, jstring callerClass) {
   REQUIRE_LIVE();
+  LOCK;
   stringstream field;
   field<<"_"<<idx;
 
@@ -430,6 +433,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_readArray
 JNIEXPORT void JNICALL Java_NativeInterface_modifyArray
 (JNIEnv *env, jclass nativeInterface, jobject arr, jint idx, jint callerValKind, jobject caller, jstring callerClass) {
   REQUIRE_LIVE();
+  LOCK;
   stringstream field;
   field<<"_"<<idx;
 
@@ -447,8 +451,8 @@ JNIEXPORT void JNICALL Java_NativeInterface_modifyArray
 
 JNIEXPORT void JNICALL
 Java_NativeInterface_methodExit(JNIEnv *env, jclass, jstring _mname, jstring _cname) {
-  REQUIRE_LIVE();
 #ifdef ENABLED
+  REQUIRE_LIVE();
   LOCK;
   const auto mname = toStdString(env, _mname);
   const auto cname = toStdString(env, _cname);
@@ -903,8 +907,6 @@ JNIEXPORT void JNICALL Java_NativeInterface_newObj(JNIEnv *, jclass, jobject,
                                                    jstring, jstring, jstring,
                                                    jobject, jobject) {
 #ifdef ENABLED
-  REQUIRE_LIVE();
-  // LOCK;
   ERR("newObj not implemented");
 #endif // ifdef ENABLED
 }
@@ -1053,8 +1055,10 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
   long valTag = getTag(valKind, val,
                        "no/var/class/available");
   long callerTag =
-    getTag(NativeInterface_SPECIAL_VAL_NORMAL, caller,
+    getTag(callerKind, caller,
            toStdString(env, callerClass));
+  //getTag(NativeInterface_SPECIAL_VAL_NORMAL, caller,
+  //       toStdString(env, callerClass));
 
   msgbuilder.setVal(valTag);
   DBG("valTag    = " << valTag);
@@ -1117,6 +1121,7 @@ Java_NativeInterface_modify(JNIEnv *env, jclass native_interface,
                             jobject caller, jstring callerClass) {
 #ifdef ENABLED
   REQUIRE_LIVE();
+  LOCK;
   handleModify(env, native_interface,
                calleeKind,
                callee,
@@ -1226,6 +1231,7 @@ Java_NativeInterface_loadFieldA(JNIEnv *env, jclass native_interface,
                                 jobject caller) {
 #ifdef ENABLED
   REQUIRE_LIVE();
+  LOCK;
   std::string holderClass = toStdString(env, _holderClass);
   std::string fname = toStdString(env, _fname);
   std::string type = toStdString(env, _type);
@@ -1377,6 +1383,15 @@ std::vector<FieldDescr> getFieldsForTag(jvmtiEnv *env, JNIEnv *jni, long tag) {
   return ret;
 }
 
+jvmtiIterationControl JNICALL handleUntaggedKlass(jlong class_tag,
+                                                   jlong size,
+                                                   jlong *tag_ptr,
+                                                   void *user_data) {
+  std::vector<long> *freshlyTagged = (std::vector<long>*)user_data;
+  *tag_ptr = -1 * nextObjID.fetch_add(1);
+  freshlyTagged->push_back(*tag_ptr);
+  return JVMTI_ITERATION_CONTINUE;
+}
 jvmtiIterationControl JNICALL handleUntaggedObject(jlong class_tag,
                                                    jlong size,
                                                    jlong *tag_ptr,
@@ -1390,26 +1405,37 @@ jvmtiIterationControl JNICALL handleUntaggedObject(jlong class_tag,
 /*
   The VM initialization event signals the completion of
   VM initialization.
-
-  * Sets init to 1 to indicate the VM init
   */
 void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
 #ifdef ENABLED
   LOCK;
   DBG("VMInit");
-
   {
     // tag objects that have not been tagged yet!
+
+    // We start by iterating over all untagged classes, giving them negative indices.
+    // We then iterate over all other untagged objects and give them positive indices.
     std::vector<long> freshlyTagged;
 
-    jvmtiError err =
+    jvmtiError err;
+
+    err =
+      env->IterateOverInstancesOfClass(jni->FindClass("java/lang/Class"),
+                                       JVMTI_HEAP_OBJECT_UNTAGGED,
+                                       handleUntaggedKlass,
+                                       &freshlyTagged);
+    ASSERT_NO_JVMTI_ERR(env, err);
+
+    err =
       env->IterateOverHeap(JVMTI_HEAP_OBJECT_UNTAGGED,
                            handleUntaggedObject,
                            &freshlyTagged);
     ASSERT_NO_JVMTI_ERR(env, err);
+    DBG("got "<<freshlyTagged.size()<<" untagged objects");
 
     DBG("late initialising "<<freshlyTagged.size() <<" objects");
     for (auto it = freshlyTagged.begin(); it != freshlyTagged.end(); ++it) {
+      DBG("freshlyTagged: "<<*it);
       capnp::MallocMessageBuilder outermessage;
       AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
       capnp::MallocMessageBuilder innermessage;
@@ -1582,7 +1608,6 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
       // these need to be disabled because they're used when switching to the live phase
       onlyDuringLivePhaseMatch.push_back("java/lang/reflect/Field");
       onlyDuringLivePhaseMatch.push_back("sun/reflect/");
-      
     }
 
     onlyDuringLivePhaseMatch.push_back("java/lang/StringBuilder");
