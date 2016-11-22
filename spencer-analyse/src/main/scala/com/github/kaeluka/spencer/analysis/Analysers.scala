@@ -8,17 +8,20 @@ import com.datastax.spark.connector.CassandraRow
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
 import com.google.common.base.Stopwatch
-import org.apache.spark.graphx.VertexId
+import org.apache.spark.graphx.{Graph, VertexId}
 import org.apache.spark.rdd.RDD
+import org.objectweb.asm.ClassReader
+import org.objectweb.asm.util.TraceClassVisitor
 
 import scala.language.implicitConversions
 import scala.reflect.{ClassTag, _}
-import org.objectweb.asm.{ClassReader, ClassVisitor}
-import org.objectweb.asm.util.TraceClassVisitor
 
 trait SpencerAnalyser[T] {
   def analyse(implicit g: SpencerData) : T
   def pretty(result: T): String
+  def explanation(): String = {
+    "an explanation of "+this.toString
+  }
 }
 
 object SpencerAnalyserUtil {
@@ -76,6 +79,8 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
   override def pretty(result: RDD[T]): String = inner.pretty(result)
 
   override def toString: String = inner.toString
+
+  override def explanation(): String = inner.explanation()
 }
 
 object AnalyserImplicits {
@@ -99,41 +104,61 @@ case class VertexIdAnalyser(inner: SpencerAnalyser[RDD[VertexId]]) extends Spenc
 
   override def toString: String = inner.toString
 
+  override def explanation(): String = inner.explanation()
+
   def and(other: VertexIdAnalyser) : SpencerAnalyser[RDD[VertexId]] = {
-    new SpencerAnalyser[RDD[VertexId]] {
-      override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-        inner.analyse.intersection(other.analyse)
-      }
+    if (other.inner.isInstanceOf[Obj]) {
+      this
+    } else if (this.inner.isInstanceOf[Obj]) {
+      other
+    } else {
+      new SpencerAnalyser[RDD[VertexId]] {
+        override def analyse(implicit g: SpencerData): RDD[VertexId] = {
+          inner.analyse.intersection(other.analyse)
+        }
 
-      override def pretty(result: RDD[VertexId]): String = {
-        result
-          .collect()
-          .mkString(
-            "objects that are both "+inner.toString+" and "+other.toString+":\n\t[ "
-            , ", "
-            , "] ")
-      }
+        override def pretty(result: RDD[VertexId]): String = {
+          result
+            .collect()
+            .mkString(
+              "objects that are both " + inner.toString + " and " + other.toString + ":\n\t[ "
+              , ", "
+              , "] ")
+        }
 
-      override def toString: String = "(("+inner.toString+") and ("+other.toString+"))"
+        override def explanation(): String = inner.explanation() + ", and that " + other.explanation()
+
+        override def toString: String = "And(" + inner.toString + " " + other.toString + ")"
+      }
     }
   }
 
   def or(other: VertexIdAnalyser) : SpencerAnalyser[RDD[VertexId]] = {
-    new SpencerAnalyser[RDD[VertexId]] {
-      override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-        inner.analyse.union(other.analyse)
-      }
+    if (other.inner.isInstanceOf[Obj]) {
+      other
+    } else if (this.inner.isInstanceOf[Obj]) {
+      this
+    } else {
+      new SpencerAnalyser[RDD[VertexId]] {
+        override def analyse(implicit g: SpencerData): RDD[VertexId] = {
+          inner.analyse.union(other.analyse)
+        }
 
-      override def pretty(result: RDD[VertexId]): String = {
-        result
-          .collect()
-          .mkString(
-            "objects that are both "+inner.toString+" and "+other.toString+":\n\t[ "
-            , ", "
-            , "] ")
-      }
+        override def pretty(result: RDD[VertexId]): String = {
+          result
+            .collect()
+            .mkString(
+              "objects that are either " + inner.toString + " or " + other.toString + ":\n\t[ "
+              , ", "
+              , "] ")
+        }
 
-      override def toString: String = "(("+inner.toString+") and ("+other.toString+"))"
+        override def toString: String = {
+          "Or("+inner.toString+" "+other.toString+")"
+        }
+
+        override def explanation(): String = inner.explanation()+", or that "+other.explanation()
+      }
     }
   }
 
@@ -282,6 +307,8 @@ case class ImmutableObj() extends SpencerAnalyser[RDD[VertexId]] {
   override def pretty(result: RDD[VertexId]): String = {
     result.collect().mkString(this.toString+":\n\t[ ", ", ", " ]")
   }
+
+  override def explanation(): String = "are never changed outside their constructor"
 }
 
 case class StationaryObj() extends SpencerAnalyser[RDD[VertexId]] {
@@ -320,6 +347,8 @@ case class StationaryObj() extends SpencerAnalyser[RDD[VertexId]] {
   override def pretty(result: RDD[VertexId]): String = {
     result.collect().mkString(this.toString+":\n\t[ ", ", ", " ]")
   }
+
+  override def explanation(): String = "are never changed after being read from for the first time"
 }
 
 case class Obj() extends SpencerAnalyser[RDD[VertexId]] {
@@ -331,6 +360,8 @@ case class Obj() extends SpencerAnalyser[RDD[VertexId]] {
   override def pretty(result: RDD[VertexId]): String = {
     "all objects:\n\t"+result.collect().mkString(", ")
   }
+
+  override def explanation(): String = "were traced"
 }
 
 case class Timed[T](inner: SpencerAnalyser[T]) extends SpencerAnalyser[T] {
@@ -363,7 +394,7 @@ case class Count[T <: SpencerAnalyser[RDD[Any]]](inner: T) extends SpencerAnalys
   override def pretty(result: Long): String = this.toString+": "+result
 }
 
-case class AllocatedAt(allocationSite: (Option[String], Option[Long])) extends SpencerAnalyser[RDD[VertexId]] {
+case class AllocatedAt(allocationSite: (String, Long)) extends SpencerAnalyser[RDD[VertexId]] {
 
   override def analyse(implicit g: SpencerData): RDD[VertexId] = {
     g.db.getTable("objects")
@@ -379,8 +410,10 @@ case class AllocatedAt(allocationSite: (Option[String], Option[Long])) extends S
   }
 
   override def toString() : String = {
-    "AllocatedAt("+allocationSite._1.getOrElse("<any file>")+":"+allocationSite._2.map(_.toString).getOrElse("<any line>")+")"
+    "AllocatedAt("+allocationSite._1+":"+allocationSite._2.toString+")"
   }
+
+  override def explanation(): String = "were allocated at "+allocationSite._1+":"+allocationSite._2
 }
 
 case class Lifetime(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(VertexId, (Long, Long))]] {
@@ -409,6 +442,8 @@ case class InstanceOfClass(klassName: String) extends SpencerAnalyser[RDD[Vertex
   override def pretty(result: RDD[VertexId]): String = {
     "instances of "+klassName+":\n\t"+result.collect().mkString(", ")
   }
+
+  override def explanation(): String = "are instances of class "+klassName
 }
 
 case class ObjsByClass() extends SpencerAnalyser[RDD[(String, Iterable[VertexId])]] {
@@ -490,16 +525,27 @@ case class IsNot(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[
   }
 }
 
-case class Named[T](inner: SpencerAnalyser[T], name: String) extends SpencerAnalyser[T] {
+object Named {
+  def apply[T](inner: SpencerAnalyser[T], name: String) = {
+    new Named(inner, name)
+  }
+}
+case class Named[T](inner: SpencerAnalyser[T], name: String, expl: String) extends SpencerAnalyser[T] {
+
+  def this(inner: SpencerAnalyser[T], name: String) =
+    this(inner, name, inner.explanation())
+
   override def analyse(implicit g: SpencerData): T = inner.analyse
 
   override def pretty(result: T): String = inner.pretty(result)
 
   override def toString: String = name
+
+  override def explanation(): String = this.expl
 }
 
 case object MutableObj {
-  def apply(): SpencerAnalyser[RDD[VertexId]] = Named(IsNot(ImmutableObj()), "Mutable()")
+  def apply(): SpencerAnalyser[RDD[VertexId]] = Named(IsNot(ImmutableObj()), "MutableObj()", "are changed outside of their constructor")
 }
 
 case class Deeply(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[VertexId]] {
@@ -720,10 +766,33 @@ case class ConstSeq[T: ClassTag](value: Seq[T]) extends SpencerAnalyser[RDD[T]] 
   }
 }
 
+
+
 case class Const[T](value: T) extends SpencerAnalyser[T] {
   override def analyse(implicit g: SpencerData): T = value
 
   override def pretty(result: T): String = this.toString
+}
+
+case class ConnectedComponent(marker: VertexId, members: Array[VertexId]) {
+  override def toString(): String = {
+    "ConnectedComponent("+marker+", "+members.mkString("{", ",", "}")+")"
+  }
+}
+
+case class ConnectedComponents(minSize: Int) extends SpencerAnalyser[RDD[ConnectedComponent]] {
+  def analyse(implicit g: SpencerData): RDD[ConnectedComponent] = {
+    val graph: Graph[ObjDesc, EdgeDesc] = g.graph.cache()
+    val components: Graph[VertexId, EdgeDesc] = graph.subgraph(epred = _.attr.kind == EdgeKind.FIELD).connectedComponents()
+
+    val compSet = components.vertices
+    compSet
+      .groupBy(_._2) // group by group ID
+      .map { case (marker, iter) => ConnectedComponent(marker, iter.map(_._1).toArray) }
+      .filter(_.members.size >= minSize)
+  }
+
+  def pretty(result: RDD[ConnectedComponent]) : String = result.collect().mkString("\n")
 }
 
 case class ConnectedWith(roots: SpencerAnalyser[RDD[VertexId]]
@@ -773,6 +842,12 @@ case class ConnectedWith(roots: SpencerAnalyser[RDD[VertexId]]
   override def pretty(result: RDD[VertexId]): String = {
     "Reachable from roots "+result.collect().mkString("[", ",", "]")+":\n\t"+result.collect().mkString("[", ", ", "]")
   }
+
+  override def explanation(): String = if (reverse) {
+    "are can reach any objects that "+roots.explanation()
+  } else {
+    "are reachable from any objects that "+roots.explanation()
+  }
 }
 
 object Scratch extends App {
@@ -783,29 +858,34 @@ object Scratch extends App {
     val db: SpencerDB = new SpencerDB("test")
     db.connect()
 
+
     val watch: Stopwatch = Stopwatch.createStarted()
     implicit val g: SpencerData = SpencerGraphImplicits.spencerDbToSpencerGraph(db)
 
     val query =
 //      InRefsHistory()
-    //    ProportionPerAllocationSite(Deeply(MutableObj()) and ObjWithInstanceCountAtLeast(10))
-    //    InstanceOfClass("Foo") vs MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP)
-    //    InstanceOfClass("Foo") vs (ImmutableObj() and ImmutableObj())
-    //    InstanceOfClass("java.util.TreeSet")
-    //    MutableObj()
-    //    DeeplyImmutableClass()
-    //    InDegree(InDegree.Aliased, InDegreeSpec.HEAP) vs InDegree(InDegree.Aliased, InDegreeSpec.STACK)
-    //    Mutable() vs InDegree(InDegree.Aliased)
-    //    (InstanceOfClass("Foo") and Mutable()) vs (InstanceOfClass("Foo") and InDegree(InDegree.Aliased))
-        Apropos(28740)
-    //    ProportionOutOf(InstanceOfClass("[C"), AllObjects())
-    //    WithClassName(InDegree(_ > 1) and Mutable())
-    //    ConnectedWith(InstanceOfClass("Foo")) and Mutable()
-    //    Apropos(91947)
-    //    WithClassName(ReachableFrom(InstanceOfClass("java.lang.String")))
-    //    Tabulate(AllClasses(), (klass: String) => ProportionOutOf(Immutable(), InstanceOfClass(klass)))
+//        ProportionPerAllocationSite(Deeply(MutableObj()) and ObjWithInstanceCountAtLeast(10))
+//        InstanceOfClass("Foo") vs MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP)
+//        InstanceOfClass("Foo") vs (ImmutableObj() and ImmutableObj())
+//        InstanceOfClass("java.util.TreeSet")
+//        MutableObj()
+//        DeeplyImmutableClass()
+//        InDegree(InDegree.Aliased, InDegreeSpec.HEAP) vs InDegree(InDegree.Aliased, InDegreeSpec.STACK)
+//        Mutable() vs InDegree(InDegree.Aliased)
+//        (InstanceOfClass("Foo") and Mutable()) vs (InstanceOfClass("Foo") and InDegree(InDegree.Aliased))
+//        Apropos(28740)
+        ConnectedComponents(10)
+//        ProportionOutOf(InstanceOfClass("[C"), AllObjects())
+//        WithClassName(InDegree(_ > 1) and Mutable())
+//        ConnectedWith(InstanceOfClass("Foo")) and Mutable()
+//        Apropos(91947)
+//        WithClassName(ReachableFrom(InstanceOfClass("java.lang.String")))
+//        Tabulate(AllClasses(), (klass: String) => ProportionOutOf(Immutable(), InstanceOfClass(klass)))
 
-    val res = query.analyse
+    val q = Named(query, "naaaame", "eeeexpl")
+    val res = q.analyse
+    println("name: "+q.toString)
+    println("expl: "+q.explanation())
 
     //  res.collect().foreach(id => {
     //    val query = Apropos(id)

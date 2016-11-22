@@ -15,8 +15,8 @@ object QueryParser {
     primitiveObjQuery | parameterisedObjQuery
 
   def connectedWith =
-    P("ReachableFrom("~objQuery~")").map(ConnectedWith(_)) |
-      P("CanReach("~objQuery~")").map(ConnectedWith(_, reverse = true))
+    P("ReachableFrom("~objQuery~")").map(x => Named(ConnectedWith(x), "ReachableFrom("+x.toString+")")) |
+      P("CanReach("~objQuery~")").map(x => Named(ConnectedWith(x, reverse = true), "CanReach("+x.toString+")"))
 
   def deeply =
     P("Deeply("~objQuery~")").map(Deeply)
@@ -39,15 +39,16 @@ object QueryParser {
     P("AllocatedAt("~location~")")
       .map(AllocatedAt)
 
-  def location: P[(Option[String], Option[Long])] =
+  def location: P[(String, Long)] =
     P((CharIn('a' to 'z') | CharIn('A' to 'Z') | "_" | ".").rep(1).! ~ ":" ~ number)
-    .map({case (file, line) => (Some(file), Some(line))})
 
   def bigOr =
-    P("Or("~objQuery.rep(2, sep=" ")~")").map(_.reduce(_ or _))
+    P("Or("~objQuery.rep(2, sep=" ")~")").map(
+      xs => Named(xs.reduce(_ and _), xs.mkString("Or(", " ", ")")))
 
   def bigAnd =
-    P("And("~objQuery.rep(2, sep=" ")~")").map(_.reduce(_ and _))
+    P("And("~objQuery.rep(2, sep=" ")~")").map(
+      xs => Named(xs.reduce(_ and _), xs.mkString("And(", " ", ")")))
 
   def isNot =
     P("Not("~objQuery~")").map(IsNot)
@@ -73,9 +74,9 @@ object QueryParser {
       case "MutableObj()" => Snapshotted(MutableObj())
       case "ImmutableObj()" => Snapshotted(ImmutableObj())
       case "StationaryObj()" => Snapshotted(StationaryObj())
-      case "UniqueObj()" => Snapshotted(MaxInDegree(MaxInDegree.Unique))
-      case "HeapUniqueObj()" => Snapshotted(MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP))
-      case "StackBoundObj()" => Snapshotted(Named(MaxInDegree(MaxInDegree.None, InDegreeSpec.HEAP), "StackBoundObj()"))
+      case "UniqueObj()" => Snapshotted(Named(MaxInDegree(MaxInDegree.Unique), "UniqueObj()", "have at most one active reference at each time"))
+      case "HeapUniqueObj()" => Snapshotted(Named(MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP), "HeapUniqueObj()", "have at most one active heap reference at each time"))
+      case "StackBoundObj()" => Snapshotted(Named(MaxInDegree(MaxInDegree.None, InDegreeSpec.HEAP), "StackBoundObj()", "never escape to the heap"))
       case "Obj()" => Snapshotted(Obj())
     }
 
@@ -86,6 +87,25 @@ object QueryParser {
       case Parsed.Failure(_, index, extra) =>
         Left("parsing failed :\n"+txt+"\n"+(" "*index)+"^\nrest: "+extra)
     }
+  }
+
+  def primitiveQueries(klass: String = "java.lang.String", allocationSite: String = "somefile:123") : List[SpencerAnalyser[RDD[VertexId]]] = {
+    List("MutableObj()",
+      "ImmutableObj()",
+      "StationaryObj()",
+      "UniqueObj()",
+      "HeapUniqueObj()",
+      "StackBoundObj()",
+      "InstanceOfClass("+klass+")",
+      "AllocatedAt("+allocationSite+")",
+      "Obj()"
+    )
+      .map(QueryParser.parseObjQuery(_))
+        .map(x => {
+          assert(x.isRight, x+toString+" must be right!")
+          x
+        })
+      .map(_.right.get)
   }
 
 }

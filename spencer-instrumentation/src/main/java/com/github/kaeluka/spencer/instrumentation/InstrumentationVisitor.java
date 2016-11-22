@@ -253,18 +253,13 @@ class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                 super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
                 super.visitInsn(ACONST_NULL);
             } else {
-                if ((type != INTEGER) && (type != FLOAT) && (type != DOUBLE)
-                        && (type != LONG) && (type != NULL)
-                        && (type != UNINITIALIZED_THIS) && (type != TOP)) {
+                if (type != INTEGER && type != FLOAT && type != DOUBLE && type != LONG && type != NULL && type != TOP) {
                     super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
                     super.visitVarInsn(ALOAD, var);
                 } else {
                     if (type == TOP) {
                         // the value is unitialised! Emit NULL!
                         super.visitLdcInsn(Instrument.SPECIAL_VAL_NORMAL);
-                        super.visitInsn(ACONST_NULL);
-                    } else if (type == UNINITIALIZED_THIS) {
-                        super.visitLdcInsn(Instrument.SPECIAL_VAL_THIS);
                         super.visitInsn(ACONST_NULL);
                     } else {
                         runtimeWarning("can not instrument primitives (type = "+type+")! - "+(type != INTEGER));
