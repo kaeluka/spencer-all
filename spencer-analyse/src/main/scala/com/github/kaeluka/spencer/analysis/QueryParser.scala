@@ -70,6 +70,7 @@ object QueryParser {
       | "HeapUniqueObj()"
       | "StackBoundObj()"
       | "Obj()"
+      | "PrimitiveObj()"
       ).!).map {
       case "MutableObj()" => Snapshotted(MutableObj())
       case "ImmutableObj()" => Snapshotted(ImmutableObj())
@@ -95,6 +96,7 @@ object QueryParser {
       "StationaryObj()",
       "UniqueObj()",
       "HeapUniqueObj()",
+      "TinyObj()",
       "StackBoundObj()",
       "InstanceOfClass("+klass+")",
       "AllocatedAt("+allocationSite+")",

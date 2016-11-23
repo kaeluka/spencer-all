@@ -358,7 +358,7 @@ case class Obj() extends SpencerAnalyser[RDD[VertexId]] {
   }
 
   override def pretty(result: RDD[VertexId]): String = {
-    "all objects:\n\t"+result.collect().mkString(", ")
+    "all objects:\n\t"+result.count+"x - "+result.collect().mkString(", ")
   }
 
   override def explanation(): String = "were traced"
@@ -399,9 +399,8 @@ case class AllocatedAt(allocationSite: (String, Long)) extends SpencerAnalyser[R
   override def analyse(implicit g: SpencerData): RDD[VertexId] = {
     g.db.getTable("objects")
       .filter(row =>
-        allocationSite ==
-          (row.getStringOption("allocationsitefile")
-            ,row.getLongOption("allocationsiteline")))
+        row.getStringOption("allocationsitefile").contains(allocationSite._1) &&
+          row.getLongOption("allocationsiteline").contains(allocationSite._2))
       .map(_.getLong("id"))
   }
 
@@ -850,6 +849,19 @@ case class ConnectedWith(roots: SpencerAnalyser[RDD[VertexId]]
   }
 }
 
+case class TinyObj() extends SpencerAnalyser[RDD[VertexId]] {
+  override def analyse(implicit g: SpencerData): RDD[VertexId] = {
+    val withRefTypeFields = g.graph.triplets.filter(_.attr.kind == EdgeKind.FIELD).map(_.srcId).distinct()
+    Obj().analyse.subtract(withRefTypeFields)
+  }
+
+  override def pretty(result: RDD[VertexId]): String = {
+    "tiny objects: "+result.count()+"x - "+result.collect().mkString("{", ",", "}")
+  }
+
+  override def explanation(): String = "do not have or use reference type fields"
+}
+
 object Scratch extends App {
 
   run
@@ -874,7 +886,8 @@ object Scratch extends App {
 //        Mutable() vs InDegree(InDegree.Aliased)
 //        (InstanceOfClass("Foo") and Mutable()) vs (InstanceOfClass("Foo") and InDegree(InDegree.Aliased))
 //        Apropos(28740)
-        ConnectedComponents(10)
+//        ConnectedComponents(10)
+        Obj()
 //        ProportionOutOf(InstanceOfClass("[C"), AllObjects())
 //        WithClassName(InDegree(_ > 1) and Mutable())
 //        ConnectedWith(InstanceOfClass("Foo")) and Mutable()
@@ -882,10 +895,9 @@ object Scratch extends App {
 //        WithClassName(ReachableFrom(InstanceOfClass("java.lang.String")))
 //        Tabulate(AllClasses(), (klass: String) => ProportionOutOf(Immutable(), InstanceOfClass(klass)))
 
-    val q = Named(query, "naaaame", "eeeexpl")
-    val res = q.analyse
-    println("name: "+q.toString)
-    println("expl: "+q.explanation())
+    val res = query.analyse
+    println("name: "+query.toString)
+    println("expl: "+query.explanation())
 
     //  res.collect().foreach(id => {
     //    val query = Apropos(id)
