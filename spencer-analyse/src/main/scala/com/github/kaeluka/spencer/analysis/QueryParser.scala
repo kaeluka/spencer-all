@@ -68,6 +68,7 @@ object QueryParser {
       | "StationaryObj()"
       | "UniqueObj()"
       | "HeapUniqueObj()"
+      | "TinyObj()"
       | "StackBoundObj()"
       | "Obj()"
       | "PrimitiveObj()"
@@ -77,6 +78,7 @@ object QueryParser {
       case "StationaryObj()" => Snapshotted(StationaryObj())
       case "UniqueObj()" => Snapshotted(Named(MaxInDegree(MaxInDegree.Unique), "UniqueObj()", "have at most one active reference at each time"))
       case "HeapUniqueObj()" => Snapshotted(Named(MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP), "HeapUniqueObj()", "have at most one active heap reference at each time"))
+      case "TinyObj()" => Snapshotted(TinyObj())
       case "StackBoundObj()" => Snapshotted(Named(MaxInDegree(MaxInDegree.None, InDegreeSpec.HEAP), "StackBoundObj()", "never escape to the heap"))
       case "Obj()" => Snapshotted(Obj())
     }
