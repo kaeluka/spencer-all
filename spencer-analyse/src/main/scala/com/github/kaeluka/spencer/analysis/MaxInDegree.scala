@@ -95,6 +95,8 @@ case class InRefsHistory(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnal
         k + " - " + v.map(t_holders => t_holders._1+": "+t_holders._2.mkString("{", " ", "}")).mkString(" | ")
     }.mkString("\n")
   }
+
+  override def explanation(): String = "the in-reference history of an object"
 }
 
 case class InDegreeMap(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalyser[RDD[(VertexId, Seq[(Long, Int)])]] {
@@ -124,7 +126,9 @@ case class InDegreeMap(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalys
     res
   }
 
-  override def pretty(result: RDD[(VertexId, Seq[(VertexId, Int)])]): String = result.collect().toMap.toString
+  override def pretty(result: RDD[(VertexId, Seq[(Long, Int)])]): String = result.collect().toMap.toString
+
+  override def explanation(): String = "a map of in-degrees of objects, per time"
 }
 
 case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalyser[RDD[Long]] {
@@ -169,6 +173,8 @@ case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) ex
 //      (p.toString()+" from "+spec.toString).replace(" ", "_")
     }
   }
+
+  override def explanation(): String = "the maximum in degree per object"
 }
 
 //  override def toString(): String = {

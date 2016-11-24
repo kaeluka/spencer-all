@@ -19,9 +19,7 @@ import scala.reflect.{ClassTag, _}
 trait SpencerAnalyser[T] {
   def analyse(implicit g: SpencerData) : T
   def pretty(result: T): String
-  def explanation(): String = {
-    "an explanation of "+this.toString
-  }
+  def explanation(): String
 }
 
 object SpencerAnalyserUtil {
@@ -37,6 +35,7 @@ object SpencerAnalyserUtil {
   }
 }
 
+/*
 case class Klass() extends SpencerAnalyser[RDD[String]] {
   override def analyse(implicit g: SpencerData): RDD[String] = {
     g.db.getTable("objects")
@@ -47,12 +46,14 @@ case class Klass() extends SpencerAnalyser[RDD[String]] {
 
   override def pretty(result: RDD[String]): String = result.collect().mkString(this.toString+":\n\t { ", ", ", " }")
 }
+*/
 
 case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
   override def analyse(implicit g: SpencerData): RDD[T] = {
     if (inner.isInstanceOf[Snapshotted[_]]) {
       inner.analyse
     } else {
+      val watch: Stopwatch = Stopwatch.createStarted()
       val queryString = inner.toString
       val snapshots = g.db.getTable("snapshots").where("query = ?", queryString)
       assert(snapshots.count == 0 || snapshots.count == 1)
@@ -68,10 +69,12 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
         g.db.session.execute("INSERT INTO "+g.db.session.getLoggedKeyspace+".snapshots (query, result) VALUES (?, ?);", queryString, resultSerialised)
         result
       } else {
-        val resultSerialised = snapshots .take(1)(0).getBytes("result")
+        val resultSerialised = snapshots.first().getBytes("result")
         println(s"snapshot for query $queryString: reading ${resultSerialised.array().length} bytes")
         val ois: ObjectInputStream = new ObjectInputStream(new ByteArrayInputStream(resultSerialised.array()))
-        g.db.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
+        val res = g.db.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
+        println(s"deserialising took $watch")
+        res
       }
     }
   }
@@ -88,9 +91,9 @@ object AnalyserImplicits {
     VertexIdAnalyser(a)
   }
 
-  implicit def toRddAnalyser[T](a: SpencerAnalyser[RDD[T]]) : RddAnalyser[T] = {
-    RddAnalyser(a)
-  }
+//  implicit def toRddAnalyser[T](a: SpencerAnalyser[RDD[T]]) : RddAnalyser[T] = {
+//    RddAnalyser(a)
+//  }
 }
 
 case class VertexIdAnalyser(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[Long]] {
@@ -161,34 +164,9 @@ case class VertexIdAnalyser(inner: SpencerAnalyser[RDD[VertexId]]) extends Spenc
       }
     }
   }
-
-  def vs(other: VertexIdAnalyser) : SpencerAnalyser[Map[(Boolean, Boolean), RDD[VertexId]]] = {
-    new SpencerAnalyser[Map[(Boolean, Boolean), RDD[VertexId]]] {
-      override def analyse(implicit g: SpencerData): Map[(Boolean, Boolean), RDD[VertexId]] = {
-        val allRes: RDD[VertexId] = Obj().analyse.cache()
-        val innerRes: RDD[VertexId] = inner.analyse
-        val innerNotRes: RDD[VertexId] = allRes.subtract(innerRes)
-        val otherRes: RDD[VertexId] = other.analyse
-        val otherNotRes: RDD[VertexId] = allRes.subtract(otherRes)
-
-        Map() +
-          ((true,  true)  -> innerRes   .intersection(otherRes)) +
-          ((true,  false) -> innerRes   .intersection(otherNotRes)) +
-          ((false, true)  -> innerNotRes.intersection(otherRes)) +
-          ((false, false) -> innerNotRes.intersection(otherNotRes))
-      }
-
-      override def pretty(result: Map[(Boolean, Boolean), RDD[VertexId]]): String = {
-        var ret = ""
-        for (k <- result.keysIterator) {
-          ret = ret + (if (k._1) "    " else "not ")+inner.toString+(if (k._2) ",     " else ", not ")+other.toString+": "+SpencerAnalyserUtil.rddToString(result(k))+"\n"
-        }
-        ret
-      }
-    }
-  }
 }
 
+/*
 case class RddAnalyser[T](inner: SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
   override def analyse(implicit g: SpencerData): RDD[T] = inner.analyse
   override def pretty(result: RDD[T]): String = inner.pretty(result)
@@ -211,6 +189,7 @@ case class RddAnalyser[T](inner: SpencerAnalyser[RDD[T]]) extends SpencerAnalyse
     }
   }
 }
+*/
 
 //object TableAnalyserImplicits {
 //  implicit def toTableAnalyser[T,U](x: SpencerAnalyser[(T,U)]) : SpencerTableAnalyser = {
@@ -244,6 +223,8 @@ case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
   }
 
   override def pretty(result: Option[String]): String = result.toString
+
+  override def explanation(): String = "shows the source code of a class"
 }
 
 case class WithMetaInformation(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(Long, Option[String], Option[String])]] {
@@ -268,8 +249,11 @@ case class WithMetaInformation(inner: SpencerAnalyser[RDD[VertexId]]) extends Sp
       result.collect().mkString("\n")
   }
 
+  override def explanation(): String = inner.explanation()
+
 }
 
+/*
 case class ProportionIn[T](smaller: SpencerAnalyser[RDD[T]], larger: SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[(RDD[T], RDD[T])] {
 
   override def analyse(implicit g: SpencerData): (RDD[T], RDD[T]) = {
@@ -286,6 +270,7 @@ case class ProportionIn[T](smaller: SpencerAnalyser[RDD[T]], larger: SpencerAnal
     }
   }
 }
+*/
 
 case class ImmutableObj() extends SpencerAnalyser[RDD[VertexId]] {
 
@@ -384,8 +369,11 @@ case class Timed[T](inner: SpencerAnalyser[T]) extends SpencerAnalyser[T] {
   override def toString: String = {
       inner.toString + " (took "+duration.toString+")"
   }
+
+  override def explanation(): String = inner.explanation()
 }
 
+/*
 case class Count[T <: SpencerAnalyser[RDD[Any]]](inner: T) extends SpencerAnalyser[Long] {
   override def analyse(implicit g: SpencerData): Long = {
     inner.analyse.count()
@@ -393,6 +381,7 @@ case class Count[T <: SpencerAnalyser[RDD[Any]]](inner: T) extends SpencerAnalys
 
   override def pretty(result: Long): String = this.toString+": "+result
 }
+*/
 
 case class AllocatedAt(allocationSite: (String, Long)) extends SpencerAnalyser[RDD[VertexId]] {
 
@@ -415,7 +404,7 @@ case class AllocatedAt(allocationSite: (String, Long)) extends SpencerAnalyser[R
   override def explanation(): String = "were allocated at "+allocationSite._1+":"+allocationSite._2
 }
 
-case class Lifetime(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(VertexId, (Long, Long))]] {
+case class LifeTime(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(VertexId, (Long, Long))]] {
 
   override def analyse(implicit g: SpencerData): RDD[(VertexId, (Long, Long))] = {
     g.db.getTable("objects")
@@ -427,6 +416,8 @@ case class Lifetime(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalys
   override def pretty(result: RDD[(VertexId, (Long, Long))]): String = {
     "Lifetimes:\n\t"+result.collect().mkString(", ")
   }
+
+  override def explanation(): String = "shows the first and last times objects were used"
 }
 
 case class InstanceOfClass(klassName: String) extends SpencerAnalyser[RDD[VertexId]] {
@@ -457,8 +448,11 @@ case class ObjsByClass() extends SpencerAnalyser[RDD[(String, Iterable[VertexId]
   override def pretty(result: RDD[(String, Iterable[VertexId])]): String = {
     result.sortBy(_._2.size).collect().map({case (klass, objs) => klass + " - ("+ objs.size + " instances): \n\t\t" + objs.mkString("[", ", ", "]")}).mkString("\n")
   }
+
+  override def explanation(): String = "grouped by allocation site"
 }
 
+/*
 case class Mapped[T, U](inner: SpencerAnalyser[T], f: T => U) extends SpencerAnalyser[U] {
   override def analyse(implicit g: SpencerData): U = {
     f(inner.analyse)
@@ -466,6 +460,7 @@ case class Mapped[T, U](inner: SpencerAnalyser[T], f: T => U) extends SpencerAna
 
   override def pretty(result: U): String = this.toString+": "+result
 }
+*/
 
 case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[Array[T]] {
   override def analyse(implicit g: SpencerData): Array[T] = {
@@ -475,6 +470,8 @@ case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[A
   override def pretty(result: Array[T]): String = {
     this.toString+":\n\t"+result.mkString("[ ", ", ", " ]")
   }
+
+  override def explanation(): String = inner.explanation()
 }
 
 // Tabulate[String, AllClasses, Nothing, InstanceOfClass] = Tabulate(AllClasses(), InstanceOfClass)
@@ -498,8 +495,11 @@ case class TabulateRDD[I, J <: SpencerAnalyser[RDD[I]], K]
         k.mkString(i+"\t->\t [ ", ", ", " ]")
       }).mkString("\n")
   }
+
+  override def explanation(): String = "TabulateRDD"
 }
 
+/*
 case class Tabulate[I, J <: SpencerAnalyser[RDD[I]], K]
 (inner : J, f: I => SpencerAnalyser[K]) extends SpencerAnalyser[RDD[(I, K)]] {
   override def analyse(implicit g: SpencerData): RDD[(I, K)] = {
@@ -513,6 +513,7 @@ case class Tabulate[I, J <: SpencerAnalyser[RDD[I]], K]
       }).mkString("\n")
   }
 }
+*/
 
 case class IsNot(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[VertexId]] {
   override def analyse(implicit g: SpencerData): RDD[VertexId] = {
@@ -522,6 +523,8 @@ case class IsNot(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[
   override def pretty(result: RDD[VertexId]): String = {
     result.collect().mkString("not "+inner.toString+":\n\t[ ", ", ", " ]")
   }
+
+  override def explanation(): String = "not "+inner.explanation()
 }
 
 object Named {
@@ -558,28 +561,13 @@ case class Deeply(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser
   override def pretty(result: RDD[VertexId]): String = {
     this.toString+":\n\t"+SpencerAnalyserUtil.rddToString(result)
   }
+
+  override def explanation(): String = {
+    inner.explanation()+", and the same is true for all reachable objects"
+  }
 }
 
-//case class PerClass(prop: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[String]] {
-//  override def analyse(implicit g: SpencerData): RDD[String] = {
-//    val propObjs = prop.analyse
-//    val table: Array[(String, RDD[VertexId])] = TabulateRDD(Obj(), InstanceOfClass).analyse
-//    val passed = table.flatMap({
-//      case (klass, instances) =>
-//        if (instances.subtract(propObjs).isEmpty()) {
-//          Some(klass)
-//        } else {
-//          None
-//        }
-//    })
-//    g.db.sc.parallelize(passed)
-//  }
-//
-//  override def pretty(result: RDD[String]): String = {
-//    this.toString
-//  }
-//}
-
+/*
 case class ClassProperty(prop: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[String]] {
   override def analyse(implicit g: SpencerData): RDD[String] = {
     val propObjs = prop.analyse.collect().toSet
@@ -604,6 +592,7 @@ object DeeplyImmutableClass {
   def apply() : SpencerAnalyser[RDD[String]] =
     ClassProperty(Deeply(ImmutableObj()))
 }
+*/
 
 case class GroupByClass(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[(Option[String], Iterable[VertexId])]] {
   override def analyse(implicit g: SpencerData): RDD[(Option[String], Iterable[VertexId])] = {
@@ -638,7 +627,10 @@ case class GroupByClass(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAn
           })
       }).mkString("\n")
   }
+
+  override def explanation(): String = "some objects, grouped by class"
 }
+
 case class GroupByAllocationSite(inner: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[((Option[String], Option[Long]), Iterable[VertexId])]] {
   override def analyse(implicit g: SpencerData): RDD[((Option[String], Option[Long]), Iterable[VertexId])] = {
     val innerCollected = inner.analyse.collect()
@@ -678,16 +670,17 @@ case class GroupByAllocationSite(inner: SpencerAnalyser[RDD[VertexId]]) extends 
 
     this.toString+":\n"+
       collected.map({
-        case (allocationSite, instances) => {
+        case (allocationSite, instances) =>
           val size = instances.size
           allocationSite+"\t-\t"+(if (size > 50) {
             instances.take(50).mkString("\t"+size+" x - [ ", ", ", " ... ]")
           } else {
             instances.mkString("\t"+size+" x - [ ", ", ", " ]")
           })
-        }
       }).mkString("\n")
   }
+
+  override def explanation(): String = "some objects, grouped by allocation site"
 }
 
 case class ObjWithInstanceCountAtLeast(n : Int) extends SpencerAnalyser[RDD[VertexId]] {
@@ -700,6 +693,8 @@ case class ObjWithInstanceCountAtLeast(n : Int) extends SpencerAnalyser[RDD[Vert
   override def pretty(result: RDD[VertexId]): String = {
     this.toString+":\n\t"+SpencerAnalyserUtil.rddToString(result)
   }
+
+  override def explanation(): String = "created from classes with at least "+n+" instances in total"
 }
 
 case class PerClass[U: ClassTag](f : (Option[String], Iterable[VertexId]) => Option[U]) extends SpencerAnalyser[RDD[U]] {
@@ -717,7 +712,10 @@ case class PerClass[U: ClassTag](f : (Option[String], Iterable[VertexId]) => Opt
   override def pretty(result: RDD[U]): String = {
     result.collect().mkString(this.toString+":\n\t - ", "\n\t - ", "")
   }
+
+  override def explanation(): String = "grouped by class, then mapped"
 }
+
 case class PerAllocationSite[U: ClassTag](f : ((Option[String], Option[Long]), Iterable[VertexId]) => Option[U]) extends SpencerAnalyser[RDD[U]] {
   override def analyse(implicit g: SpencerData): RDD[U] = {
     val innerObjs: Set[VertexId] = Obj().analyse.collect().toSet[VertexId]
@@ -733,6 +731,8 @@ case class PerAllocationSite[U: ClassTag](f : ((Option[String], Option[Long]), I
   override def pretty(result: RDD[U]): String = {
     result.collect().mkString(this.toString+":\n\t - ", "\n\t - ", "")
   }
+
+  override def explanation(): String = "grouped by allocation sites and then mapped"
 }
 
 object ProportionPerClass {
@@ -763,14 +763,16 @@ case class ConstSeq[T: ClassTag](value: Seq[T]) extends SpencerAnalyser[RDD[T]] 
   override def pretty(result: RDD[T]): String = {
     value.mkString("[ ", ", ", " ]")
   }
+
+  override def explanation(): String = "any of "+value.mkString("{", ", ", "}")
 }
-
-
 
 case class Const[T](value: T) extends SpencerAnalyser[T] {
   override def analyse(implicit g: SpencerData): T = value
 
   override def pretty(result: T): String = this.toString
+
+  override def explanation(): String = "constant value "+value.toString
 }
 
 case class ConnectedComponent(marker: VertexId, members: Array[VertexId]) {
@@ -792,6 +794,8 @@ case class ConnectedComponents(minSize: Int) extends SpencerAnalyser[RDD[Connect
   }
 
   def pretty(result: RDD[ConnectedComponent]) : String = result.collect().mkString("\n")
+
+  override def explanation(): String = "connected"
 }
 
 case class ConnectedWith(roots: SpencerAnalyser[RDD[VertexId]]
@@ -843,9 +847,9 @@ case class ConnectedWith(roots: SpencerAnalyser[RDD[VertexId]]
   }
 
   override def explanation(): String = if (reverse) {
-    "are can reach any objects that "+roots.explanation()
+    "can reach any objects that "+roots.explanation()
   } else {
-    "are reachable from any objects that "+roots.explanation()
+    "are reachable from objects that "+roots.explanation()
   }
 }
 
@@ -859,7 +863,7 @@ case class TinyObj() extends SpencerAnalyser[RDD[VertexId]] {
     "tiny objects: "+result.count()+"x - "+result.collect().mkString("{", ",", "}")
   }
 
-  override def explanation(): String = "do not have or use reference type fields"
+  override def explanation(): String = "do not have or do not use reference type fields"
 }
 
 object Scratch extends App {
@@ -869,7 +873,6 @@ object Scratch extends App {
   def run: Unit = {
     val db: SpencerDB = new SpencerDB("test")
     db.connect()
-
 
     val watch: Stopwatch = Stopwatch.createStarted()
     implicit val g: SpencerData = SpencerGraphImplicits.spencerDbToSpencerGraph(db)

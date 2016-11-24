@@ -92,7 +92,7 @@ object QueryParser {
     }
   }
 
-  def primitiveQueries(klass: String = "java.lang.String", allocationSite: String = "somefile:123") : List[SpencerAnalyser[RDD[VertexId]]] = {
+  def primitiveQueries(klass: String = "java.lang.String", allocationSite: String = "String.java:1933") : List[SpencerAnalyser[RDD[VertexId]]] = {
     List("MutableObj()",
       "ImmutableObj()",
       "StationaryObj()",

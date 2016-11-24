@@ -76,4 +76,6 @@ object SanityCheck extends SpencerAnalyser[Unit] {
 
   override def pretty(result: Unit): String = ""
 
+  override def explanation(): String = "a sanity check"
+
 }

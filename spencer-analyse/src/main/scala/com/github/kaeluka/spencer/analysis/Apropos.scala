@@ -11,4 +11,6 @@ case class Apropos(id: VertexId) extends SpencerAnalyser[AproposData] {
   override def pretty(result: AproposData): String = {
     result.toString
   }
+
+  override def explanation(): String = "the history of an object"
 }
