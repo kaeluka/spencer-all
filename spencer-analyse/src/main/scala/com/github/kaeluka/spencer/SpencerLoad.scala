@@ -1,20 +1,15 @@
 package com.github.kaeluka.spencer
 
-import java.io._
-import java.net.URLClassLoader
-import java.nio.file.{Path, Paths}
-import java.util.function.Consumer
-import java.util.zip.ZipEntry
+import java.nio.file.Paths
 
-import org.apache.commons.compress.archivers.zip.{ZipArchiveEntry, ZipFile}
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
-import org.apache.commons.io.{FileUtils, IOUtils}
 
 object SpencerLoad {
 
 //  val defaultTracefile = "/Volumes/MyBook/tracefiles/pmd.small/tracefile"
 //  val defaultTracefile = "/tmp/tracefile"
-  val defaultTracefile = "/tmp/tracefile.zip"
+//  val defaultTracefile = "/tmp/tracefile.zip"
+  val defaultTracefile = "/Users/stebr742/code/kaeluka/spencer-playground/tracefile"
 
 
   def main(args: Array[String]) {
@@ -25,14 +20,6 @@ object SpencerLoad {
       .map(_.replace("name=", ""))
       .getOrElse("test")
 
-    val oBytecodeDir = args
-      .find(_.startsWith("bytecode-dir="))
-      .map(_.replace("bytecode-dir=", ""))
-
-    if (! oBytecodeDir.isDefined) {
-      System.err.println("No bytecode directory given. Use the 'bytecode-dir=...' switch.")
-      sys.exit(1)
-    }
 
     val rest = args.filter(!_.contains("="))
 
@@ -45,13 +32,16 @@ object SpencerLoad {
       } else {
         rest(0)
     }
+
+    val oBytecodeDir = args
+      .find(_.startsWith("bytecode-dir="))
+      .map(_.replace("bytecode-dir=", ""))
+
     println("spencer cassandra loader starting...")
     println("loading "+path+" as '"+name+"'")
 
-//    analysis.Util.assertProperCallStructure(new TraceFileIterator(tracefile))
-
     val db = new SpencerDB(name)
-    db.loadFrom(path, Paths.get(oBytecodeDir.get))
+    db.loadFrom(path, Paths.get(oBytecodeDir.getOrElse(Paths.get(path).getParent.toString+"/log/")))
     println("done")
     sys.exit(0)
   }

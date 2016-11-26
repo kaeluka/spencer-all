@@ -19,62 +19,6 @@ object Util {
     name == "DestroyJavaVM" || name.startsWith("<") || name == "Finalizer"
   }
 
-  def assertProperCallStructure(it: TraceFileIterator) {
-    var cnt : Long = 0
-    val stacks = new CallStackAbstraction
-    while (it.hasNext()) {
-      val evt: Reader = it.next
-      cnt += 1
-      if (cnt % 1e6 == 0) {
-        println("#" + (cnt/1e6).toInt + "e6..")
-      }
-      if (!isTrickyThreadName(EventsUtil.getThread(evt))) {
-        if (evt.isMethodenter) {
-          stacks.push(evt.getMethodenter, cnt)
-          //          debugPrint(cnt, stacks, evt)
-          ()
-        } else if (evt.isMethodexit) {
-          val methodexit = evt.getMethodexit
-          try {
-            //            debugPrint(cnt, stacks, evt)
-            val popped: Either[IndexedEnter, IndexedEnter] = stacks.pop(methodexit)
-            popped match {
-              case Left(wrongTop) =>
-                if (!isTrickyThreadName(methodexit.getThreadName.toString)) {
-                  //                    debugPrint(cnt + 1, stacks, it.next)
-                  fail("popped frame's (#" + cnt
-                    + ") name must match last entered frame (#" + wrongTop.idx
-                    + ")\n" + "last entered frame: "
-                    + EventsUtil.methodEnterToString(wrongTop.enter) + "\npopped frame: "
-
-                    + EventsUtil.methodExitToString(methodexit))
-                }
-              case Right(_) => ()
-            }
-          } catch {
-            case _: EmptyStackException =>
-              if (!isTrickyThreadName(methodexit.getThreadName.toString)) {
-                fail("had no stack frames left when executing methodexit #"+cnt+ ": \n" +
-                  EventsUtil.methodExitToString(methodexit))
-              }
-          }
-        }
-      }
-    }
-    println("no issues found in " + cnt + " enter/exit events")
-    println("left stack: ")
-    for (key <- stacks.stacks.keySet()) {
-      val sz = stacks.stacks.get(key).size()
-      if (sz != 0) {
-        println(key + " -- " + sz + " elements")
-        for (elt <- stacks.stacks.get(key)) {
-          println(elt)
-        }
-        println(" === ")
-      }
-    }
-  }
-
   def debugPrint(cnt: Long, stacks: CallStackAbstraction, evt: AnyEvt.Reader) {
     //    (#1509093) name must match last entered frame (#1509054)
     if (cnt == 1509054) {
@@ -90,7 +34,7 @@ object Util {
   }
 }
 
-class IndexedEnter (val idx: Long, val enter: Events.MethodEnterEvt.Reader) {
+case class IndexedEnter (val idx: Long, val enter: Events.MethodEnterEvt.Reader, var usedVariables: Array[Long]) {
   override def toString: String = {
     "#"+this.idx+": "+EventsUtil.methodEnterToString(this.enter)
   }
@@ -103,7 +47,24 @@ class CallStackAbstraction {
   def push(methodenter: Events.MethodEnterEvt.Reader, idx: Long): Unit = {
     val thdName: String = methodenter.getThreadName.toString
     if (!stacks.containsKey(thdName)) stacks.put(thdName, new java.util.Stack[IndexedEnter])
-    stacks.get(thdName).push(new IndexedEnter(idx, methodenter))
+    stacks.get(thdName).push(new IndexedEnter(idx, methodenter, new Array[Long](5)))
+  }
+
+  def markVarAsUsed(thdName: String, idx: Int, start: Long): Unit = {
+    val otop = this.peek(thdName)
+    otop match {
+      case Some(top) => {
+        val arr = top.usedVariables
+        if (idx >= arr.length) {
+          top.usedVariables = new Array[Long](idx*2)
+          System.arraycopy (arr, 0, top.usedVariables, 0, arr.length)
+        }
+        top.usedVariables (idx) = start
+      }
+      case None => {
+        ()
+      }
+    }
   }
 
   def pop(methodexit: Events.MethodExitEvt.Reader): Either[IndexedEnter, IndexedEnter] = {

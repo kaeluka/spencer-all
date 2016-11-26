@@ -131,7 +131,7 @@ case class InDegreeMap(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalys
   override def explanation(): String = "a map of in-degrees of objects, per time"
 }
 
-case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalyser[RDD[Long]] {
+case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerData) : RDD[Long] = {
     val subgraph =
