@@ -1554,6 +1554,7 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
 
   {
     // tag objects that have gotten a tag due to use of getOrDoTag
+    /*
     for (auto it = irregularlyTagged.begin(); it != irregularlyTagged.end(); ++it) {
       auto typ = getTypeForTag(jni, *it);
       DBG("actual type for obj #"<<*it<<" is "<< typ);
@@ -1567,7 +1568,7 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
         msgbuilder.setSignature("(<unknown>)V");
         msgbuilder.setCalleeclass(typ);
         msgbuilder.setCalleetag(*it);
-        msgbuilder.setCallsitefile("<jvmInternals>");
+        msgbuilder.setCallsitefile("<missed callsite>");
         msgbuilder.setCallsiteline(-1);
         msgbuilder.setThreadName("<unknown thread>");
 
@@ -1597,6 +1598,7 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
       }
 
     }
+    */
   }
 
   {
@@ -1604,7 +1606,8 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
     // phase:
     for (auto redef = redefineDuringLivePhase.begin(); redef != redefineDuringLivePhase.end(); ++redef) {
       if (//redef->name == "java/lang/SystemClassLoaderAction" ||
-          redef->name == "java/lang/Class"
+          redef->name == "java/lang/Class" ||
+          strstr(redef->name.c_str(), "java/lang/invoke/")
           //          || redef->name == "sun/reflect/Reflection"
           ) {
         DBG("never instrumenting "<<redef->name);
