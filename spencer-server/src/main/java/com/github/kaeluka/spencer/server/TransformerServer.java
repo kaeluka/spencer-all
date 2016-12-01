@@ -145,13 +145,13 @@ public class TransformerServer {
                     dumpClassDataToFile(recvd, "input");
 
                     byte[] transformed = recvd;
-                    try {
+//                    try {
                         transformed = Instrument.transform(recvd,
                                 out,
                                 TransformerServer.hierarchy);
-                    } catch (Exception ex) {
-                        ex.printStackTrace(TransformerServer.out);
-                    }
+//                    } catch (Exception ex) {
+//                        ex.printStackTrace(TransformerServer.out);
+//                    }
                     if (! Arrays.equals(recvd, transformed)) {
                         println(TransformerServer.out, "transformed class");
                         dumpClassDataToFile(transformed, "output");
@@ -164,6 +164,7 @@ public class TransformerServer {
                     ex.printStackTrace();
                     File errorLog = new File("log/"+Instrument.getClassName(recvd)+".error");
                     if (!errorLog.exists()) {
+                        errorLog.getParentFile().mkdirs();
                         assert errorLog.createNewFile();
                     }
                     FileOutputStream errorStream = new FileOutputStream(errorLog);

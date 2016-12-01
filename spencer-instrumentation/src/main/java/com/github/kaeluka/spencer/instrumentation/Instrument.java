@@ -24,14 +24,14 @@ public class Instrument {
 	public static final boolean instrumentVars    = true;//System.getProperty("org.spencer.instrumentation.variables.enable", "true"). equals("true");;
 	public static final boolean instrumentMethods = true;//System.getProperty("org.spencer.instrumentation.methods.enable",   "true"). equals("true");;
 
-	protected static final boolean enableComments = System.getProperty("org.spencer.instrumentation.comments.enable",  "false").equals("true");
-	public static final boolean loudWarnings = System.getProperty("org.spencer.instrumentation.warnings.loud",         "true"). equals("true");
+	protected static final boolean enableComments = System.getProperty("org.spencer.instrumentation.comments.enable",  "true").equals("true");
+	public static final boolean loudWarnings = System.getProperty("org.spencer.instrumentation.warnings.loud",         "false"). equals("true");
 
 	public static final int SPECIAL_VAL_NORMAL = 0; // normal
-	public static final int SPECIAL_VAL_THIS   = 1; /*
-	 * returned as callee id from
-	 * constructors
-	 */
+//	public static final int SPECIAL_VAL_THIS   = 1; /*
+//	 * returned as callee id from
+//	 * constructors
+//	 */
 	public static final int SPECIAL_VAL_STATIC = 2; /*
 	 * returned instead of oids
 	 * when there is no object
