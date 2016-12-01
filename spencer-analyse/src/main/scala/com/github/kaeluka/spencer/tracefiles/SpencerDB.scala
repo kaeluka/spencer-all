@@ -141,13 +141,13 @@ class SpencerDB(val keyspace: String) {
           val fstore = evt.getFieldstore
 //          assert(fstore.getHoldertag != 0, s"edge caller is 0! ${EventsUtil.fieldStoreToString(fstore)}")
           insertUse(
-            caller = 0,
-            callee = 0,
-            method ="",
-            kind = "",
-            name = "",
-            idx = 0,
-            thread = "",
+            caller = fstore.getCallertag,
+            callee = fstore.getHoldertag,
+            method = fstore.getCallermethod.toString,
+            kind = "fieldstore",
+            name = fstore.getFname.toString,
+            idx = idx,
+            thread = fstore.getThreadName.toString,
             comment = EventsUtil.fieldStoreToString(fstore))
           if (fstore.getNewval != 0) {
             openEdge(
@@ -199,6 +199,10 @@ class SpencerDB(val keyspace: String) {
                 while (i < Nvars) {
                   if (variables(i) > 0) {
                     assert(returningObjTag != 0, s"returningObj can't be 0! ${EventsUtil.methodExitToString(mexit)}")
+                    if (returningObjTag == 28575 ) {
+                      println(menter)
+                      println(s"#${idx}: ${EventsUtil.methodExitToString(mexit)}")
+                    }
                     closeEdge(
                       holder  = returningObjTag,
                       kind    = "var",
