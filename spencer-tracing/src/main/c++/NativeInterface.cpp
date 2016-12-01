@@ -94,7 +94,8 @@ std::string getThreadName() {
       err = g_jvmti->GetTag(thread, &tag);
       ASSERT_NO_JVMTI_ERR(g_jvmti, err);
       if (tag == 0) {
-        tag = nextObjID.fetch_add(20);
+        tag = nextObjID.fetch_add(1);
+        DBG("tagging thread "<<thread<<" with "<<tag);
         err = g_jvmti->SetTag(thread, tag);
         ASSERT_NO_JVMTI_ERR(g_jvmti, err);
       }
@@ -311,16 +312,18 @@ void handleRead(JNIEnv *env, jclass native_interface,
                 jobject caller,
                 std::string callerClass);
 
+std::string getTypeForObj(JNIEnv *jni_env, jobject obj);
+
 /*
   returns a c++ string with content copied from a java str
 */
 std::string toStdString(JNIEnv *env, jstring str) {
-  DBG("getting string "<<str);
+  //DBG("getting string "<<str);
   if (str == NULL) {
     return "NULL";
   }
   const char *c_str = env->GetStringUTFChars(str, NULL);
-  DBG("got "<<c_str);
+  //DBG("got "<<c_str);
   const std::string result(c_str);
   env->ReleaseStringUTFChars(str, c_str);
   return result;
@@ -418,7 +421,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_readArray
   handleRead(env, nativeInterface,
              NativeInterface_SPECIAL_VAL_NORMAL,
              arr,
-             "[no_arr_class_yet",
+             getTypeForObj(env, arr),
              field.str(),
              callerValKind,
              caller,
@@ -440,7 +443,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_modifyArray
   handleModify(env, nativeInterface,
                NativeInterface_SPECIAL_VAL_NORMAL,
                arr,
-               "[no_arr_class_yet",
+               getTypeForObj(env, arr),
                field.str(),
                callerValKind,
                caller,
@@ -511,8 +514,23 @@ std::string getTypeForObj(JNIEnv *jni_env, jobject obj) {
 
   std::string nameStr = toStdString(jni_env, name);
 
+  std::replace(nameStr.begin(), nameStr.end(), '.', '/');
+
   return nameStr;
-  // return "foooo";
+}
+
+std::string getClassName(JNIEnv *jni_env, jclass obj) {
+  jclass klassKlass = jni_env->FindClass("java/lang/Class");
+  ASSERT(klassKlass);
+  jmethodID getName = jni_env->GetMethodID(klassKlass, "getName", "()Ljava/lang/String;");
+  ASSERT(getName != NULL);
+
+  jstring ret = (jstring)jni_env->CallObjectMethod(obj, getName);
+
+  // we tag the string as not instrumented, as we don't want it to end up in the data!
+  g_jvmti->SetTag(ret, NativeInterface_SPECIAL_VAL_NOT_INSTRUMENTED);
+
+  return toInternalForm(toStdString(jni_env, ret));
 }
 
 std::string getToString(JNIEnv *jni_env, jobject obj) {
@@ -521,8 +539,7 @@ std::string getToString(JNIEnv *jni_env, jobject obj) {
   jmethodID toString = jni_env->GetMethodID(objKlass, "toString", "()Ljava/lang/String;");
   ASSERT(toString != NULL);
 
-  jclass klass = jni_env->GetObjectClass(obj);
-  jstring ret = (jstring)jni_env->CallObjectMethod(klass, toString);
+  jstring ret = (jstring)jni_env->CallObjectMethod(obj, toString);
 
   // we tag the string as not instrumented, as we don't want it to end up in the data!
   g_jvmti->SetTag(ret, NativeInterface_SPECIAL_VAL_NOT_INSTRUMENTED);
@@ -588,13 +605,47 @@ std::string getTypeForTag(JNIEnv *jni_env, jlong tag) {
 
 }
 
-long getTag(jint objkind, jobject jobj, std::string klass) {
+void tagUntaggedClasses(JNIEnv *jni);
+
+void printUntaggedClasses(JNIEnv *jni) {
+  jclass *klasses;
+  jint klasses_count;
+  jvmtiError err = g_jvmti->GetLoadedClasses(&klasses_count, &klasses);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+  for (jint i=0; i<klasses_count; ++i) {
+    long tag;
+    err = g_jvmti->GetTag(klasses[i], &tag);
+    ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+    auto className = getClassName(jni, klasses[i]);
+    if (tag == 0) {
+      DBG("stubbornly untagged class: "<<className);
+    } else {
+      DBG("             tagged class: "<<className<<", tag = "<<tag);
+    }
+  }
+}
+
+std::map<const std::string, const jlong> klassReps;
+
+jlong getClassRepTag(JNIEnv *jni, const std::string &className) {
+  DBG("getClassRepTag(.., "<<className<<")")
+  if (klassReps.find(className) == klassReps.end()) {
+    tagUntaggedClasses(jni);
+  }
+
+  if (klassReps.find(className) == klassReps.end()) {
+    WARN("can't find class rep tag for "<<className);
+  }
+  return klassReps[className];
+}
+
+long getTag(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
   jlong tag = 0;
   switch (objkind) {
   case NativeInterface_SPECIAL_VAL_NORMAL: {
     if (jobj) {
       jvmtiError err = g_jvmti->GetTag(jobj, &tag);
-      //DBG("getting tag (" << klass << " @ " << tag << ") from JVMTI");
+      DBG("getting tag (" << klass << " @ " << tag << ") from JVMTI");
       ASSERT_NO_JVMTI_ERR(g_jvmti, err);
     }
   }
@@ -604,12 +655,12 @@ long getTag(jint objkind, jobject jobj, std::string klass) {
     if (obj == NULL) {
       return NativeInterface_SPECIAL_VAL_JVM; //this is emitted too often
     } else {
-      return getTag(NativeInterface_SPECIAL_VAL_NORMAL, obj, klass);
+      return getTag(jni, NativeInterface_SPECIAL_VAL_NORMAL, obj, klass);
     }
   }
   case NativeInterface_SPECIAL_VAL_STATIC: {
-    tag = getClassRepTag(klass);
-    //DBG("getting tag (" << klass << " @ " << tag << ") from classRep");
+    tag = getClassRepTag(jni, klass);
+    DBG("getting tag (" << klass << " @ " << tag << ") from classRep");
     break;
   }
   case NativeInterface_SPECIAL_VAL_NOT_IMPLEMENTED: {
@@ -626,7 +677,8 @@ long getTag(jint objkind, jobject jobj, std::string klass) {
 std::vector<long> irregularlyTagged;
 
 long getOrDoTag(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
-  jlong tag = getTag(objkind, jobj, klass);
+  DBG("kind="<<kindToStr(objkind)<<", klass="<<klass);
+  jlong tag = getTag(jni, objkind, jobj, klass);
   if (tag == 0) {
     tag = doTag(g_jvmti, jobj);
     if (isInLivePhase()) {
@@ -706,12 +758,13 @@ SourceLoc getSourceLoc(jint depth) {
   return ret;
 }
 
-bool tagFreshlyInitialisedObject(jobject callee,
+bool tagFreshlyInitialisedObject(JNIEnv *jni,
+                                 jobject callee,
                                  std::string threadName) {
   DBG("tagFreshlyInitialisedObject(..., threadName = " << threadName << ")");
   ASSERT(g_jvmti);
   ASSERT(callee);
-  if (getTag(NativeInterface_SPECIAL_VAL_NORMAL, callee, "class/unknown") != 0) {
+  if (getTag(jni, NativeInterface_SPECIAL_VAL_NORMAL, callee, "class/unknown") != 0) {
     return false;
   }
 
@@ -747,25 +800,22 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
   std::string calleeClassStr;
   std::string nameStr = toStdString(env, name);
 
-  if (callee == NULL && calleeKind == NativeInterface_SPECIAL_VAL_NORMAL) {
-    //happens early in bootstrapping!
-    calleeClassStr = "<: "+toStdString(env, calleeClass);
-  } else {
-    calleeClassStr = getTypeForObjKind(g_jvmti, env, callee, calleeKind, calleeClass);
-  }
+  calleeClassStr = toStdString(env, calleeClass);
   DBG("Java_NativeInterface_methodEnter: "<<calleeClassStr
       <<"::" << nameStr
       <<", thd:"<<threadName);
 
   long calleeTag;
+  DBG("calleeclass= " << calleeClassStr);
   if (calleeKind == NativeInterface_SPECIAL_VAL_STATIC) {
     callee = NULL;
-    calleeTag = getClassRepTag(calleeClassStr);
+    calleeTag = getClassRepTag(env, calleeClassStr);
     calleeClassStr = toStdString(env, calleeClass);
   } else {
     calleeTag = getOrDoTag(env, calleeKind, callee, toStdString(env, calleeClass));
   }
   DBG("callee tag = " << calleeTag);
+  DBG("calleeKind = " << calleeKind);
   DBG("thread nam = " << threadName);
   {
     capnp::MallocMessageBuilder outermessage;
@@ -808,7 +858,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
         }
         //FIXME: the caller must be the the object in the stackframe above us!
 
-        long tag = getTag(NativeInterface_SPECIAL_VAL_NORMAL, arg, "java/lang/Object");
+        long tag = getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, arg, "java/lang/Object");
         if (tag == 0) {
 
           const auto klass = getTypeForObj(env, arg);
@@ -831,8 +881,8 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
           }
           // */
 
-          tagFreshlyInitialisedObject(arg, getThreadName());
-          tag = getTag(NativeInterface_SPECIAL_VAL_NORMAL, arg, klass);
+          tagFreshlyInitialisedObject(env, arg, getThreadName());
+          tag = getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, arg, klass);
           ASSERT(tag != 0);
 
           {
@@ -898,7 +948,7 @@ Java_NativeInterface_afterInitMethod(JNIEnv *env, jclass native_interface,
   std::string calleeClassStr = toStdString(env, calleeClass);
   std::string threadName = getThreadName();
   DBG("afterInitMethod(..., callee="<<callee<<", calleeClass=" << calleeClassStr << ")");
-  tagFreshlyInitialisedObject(callee, threadName);
+  tagFreshlyInitialisedObject(env, callee, threadName);
   DBG("afterInitMethod done")
 #endif // ifdef ENABLED
     }
@@ -926,18 +976,15 @@ void handleStoreFieldA(
   LOCK;
   DBG("Java_NativeInterface_storeFieldA "<<holderClass<<"::"<<fname);
 
-  //  handleValStatic(env, &holderKind, &holder, holderClass);
   auto threadName = getThreadName();
-  //handleValStatic(env, &callerKind, &caller, callerClass);
-  //handleValStatic(env, &holderKind, &holder, holderClass);
-  long callerTag = getTag(callerKind, caller, callerClass);
+  long callerTag = getTag(env, callerKind, caller, callerClass);
   DBG("getting holder tag, holderKind="<<holderKind);
-  long holderTag = getTag(holderKind, holder, holderClass);
+  long holderTag = getOrDoTag(env, holderKind, holder, holderClass);
   DBG("getting oldval tag");
-  long oldvaltag = getTag(NativeInterface_SPECIAL_VAL_NORMAL, oldval,
+  long oldvaltag = getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, oldval,
                           type.c_str());
   DBG("getting newval tag");
-  long newvaltag = getTag(NativeInterface_SPECIAL_VAL_NORMAL, newval,
+  long newvaltag = getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, newval,
                           type.c_str());
   DBG("callertag ="<<callerTag);
   DBG("holdertag ="<<holderTag);
@@ -997,6 +1044,7 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
   REQUIRE_LIVE();
   LOCK;
   DBG("Java_NativeInterface_storeVar");
+  DBG("callerKind = "<<kindToStr(callerKind));
   auto threadName = getThreadName();
 
   ASSERT(oldValKind != NativeInterface_SPECIAL_VAL_STATIC);
@@ -1011,7 +1059,7 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
   VarStoreEvt::Builder msgbuilder = innermessage.initRoot<VarStoreEvt>();
 
   msgbuilder.setCallerclass(toStdString(env, callerClass));
-  long newValTag = getTag(newValKind, newVal,
+  long newValTag = getTag(env, newValKind, newVal,
                           msgbuilder.asReader().getCallerclass().cStr());
   DBG("newValtag="<<newValTag);
   msgbuilder.setNewval(newValTag);
@@ -1019,8 +1067,10 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
   msgbuilder.setVar((int8_t)var);
   msgbuilder.setCallermethod(toStdString(env, callerMethod));
 
+  DBG("111111111");
   msgbuilder.setCallertag(getOrDoTag(env,
                                      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
+  DBG("222222222");
   msgbuilder.setThreadName(getThreadName());
 
   anybuilder.setVarstore(msgbuilder.asReader());
@@ -1052,17 +1102,18 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
   capnp::MallocMessageBuilder innermessage;
   VarLoadEvt::Builder msgbuilder = innermessage.initRoot<VarLoadEvt>();
-  long valTag = getTag(valKind, val,
+  long valTag = getTag(env, valKind, val,
                        "no/var/class/available");
   long callerTag =
-    getTag(callerKind, caller,
-           toStdString(env, callerClass));
-  //getTag(NativeInterface_SPECIAL_VAL_NORMAL, caller,
+    getOrDoTag(env, callerKind, caller,
+               toStdString(env, callerClass));
+  //getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, caller,
   //       toStdString(env, callerClass));
 
   msgbuilder.setVal(valTag);
   DBG("valTag    = " << valTag);
   DBG("callerTag = " << callerTag);
+  DBG("callerKind = " << kindToStr(callerKind));
 
   msgbuilder.setVar((char)var);
   msgbuilder.setCallermethod(toStdString(env, callerMethod));
@@ -1192,6 +1243,7 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
 #ifdef ENABLED
   DBG("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv");
   DBG("Java_NativeInterface_loadFieldA");
+  DBG("callerKind = "<<kindToStr(callerKind));
   auto threadName = getThreadName();
   //handleValStatic(env, &holderKind, &holder, holderClass);
   //handleValStatic(env, &callerKind, &caller, callerClass);
@@ -1205,11 +1257,11 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
                                      holderKind, holder, msgbuilder.asReader().getHolderclass().cStr()));
   msgbuilder.setFname(fname);
   msgbuilder.setType(type);
-  msgbuilder.setVal(getTag(NativeInterface_SPECIAL_VAL_NORMAL, val,
+  msgbuilder.setVal(getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, val,
                            msgbuilder.asReader().getType().cStr()));
   msgbuilder.setCallermethod(callerMethod);
   msgbuilder.setCallerclass(callerClass);
-  msgbuilder.setCallertag(getTag(
+  msgbuilder.setCallertag(getTag(env, 
                                  callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
   msgbuilder.setThreadName(getThreadName());
 
@@ -1274,6 +1326,17 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
     name = "";
   }
   DBG("ClassFileLoadHook: '" << name << "'");
+  klassReps.insert({{name, (-1)*nextObjID.fetch_add(1)}});
+
+  if (name == "java/lang/invoke/LambdaForm") {
+    //these classes don't really exist, so they'll never be loaded. We'll give them
+    //IDs anyway!
+    klassReps.insert({{ "java/lang/invoke/LambdaForm$MH", (-1)*nextObjID.fetch_add(1)}});
+    klassReps.insert({{ "java/lang/invoke/LambdaForm$BMH", (-1)*nextObjID.fetch_add(1)}});
+    klassReps.insert({{ "java/lang/invoke/LambdaForm$DMH", (-1)*nextObjID.fetch_add(1)}});
+    klassReps.insert({{ "java/lang/invoke/LambdaForm$LFI", (-1)*nextObjID.fetch_add(1)}});
+    klassReps.insert({{ "java/lang/invoke/LambdaForm$NFI", (-1)*nextObjID.fetch_add(1)}});
+  }
 
   if (class_being_redefined != NULL) {
     //this is a call from RedefineClass. The class has been transformed already;
@@ -1366,7 +1429,7 @@ std::vector<FieldDescr> getFieldsForTag(jvmtiEnv *env, JNIEnv *jni, long tag) {
       jstring fieldName = (jstring)jni->GetObjectArrayElement(fields, (jsize)(i*2));
       jobject fieldVal = (jobject)jni->GetObjectArrayElement(fields, (jsize)(i*2+1));
       fd.name = toStdString(jni, fieldName);
-      fd.val = getTag(NativeInterface_SPECIAL_VAL_NORMAL, fieldVal, "java/lang/Object");
+      fd.val = getTag(jni, NativeInterface_SPECIAL_VAL_NORMAL, fieldVal, "java/lang/Object");
 
       /*
       if (fd.val == 0 && fieldVal != NULL) {
@@ -1398,8 +1461,35 @@ jvmtiIterationControl JNICALL handleUntaggedObject(jlong class_tag,
                                                    void *user_data) {
   std::vector<long> *freshlyTagged = (std::vector<long>*)user_data;
   *tag_ptr = nextObjID.fetch_add(1);
+  DBG("tagging untagged obj with "<<*tag_ptr);
   freshlyTagged->push_back(*tag_ptr);
   return JVMTI_ITERATION_CONTINUE;
+}
+
+void tagUntaggedClasses(JNIEnv *jni) {
+  DBG("tagging untagged classes..");
+  jclass *klasses;
+  jint klasses_count;
+  jvmtiError err = g_jvmti->GetLoadedClasses(&klasses_count, &klasses);
+  ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+  for (jint i=0; i<klasses_count; ++i) {
+    long tag;
+    err = g_jvmti->GetTag(klasses[i], &tag);
+    ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+
+    auto className = getClassName(jni, klasses[i]);
+
+    if (tag == 0) {
+      tag = klassReps[className];
+      if (tag == 0) {
+        tag = -1 * nextObjID.fetch_add(1);
+        klassReps.insert({ { className, tag } });
+      }
+      err = g_jvmti->SetTag(klasses[i], tag);
+      ASSERT_NO_JVMTI_ERR(g_jvmti, err);
+      DBG("tagged class: "<<className<<" as "<<tag);
+    }
+  }
 }
 
 /*
@@ -1415,18 +1505,10 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
 
     // We start by iterating over all untagged classes, giving them negative indices.
     // We then iterate over all other untagged objects and give them positive indices.
+    tagUntaggedClasses(jni);
     std::vector<long> freshlyTagged;
 
-    jvmtiError err;
-
-    err =
-      env->IterateOverInstancesOfClass(jni->FindClass("java/lang/Class"),
-                                       JVMTI_HEAP_OBJECT_UNTAGGED,
-                                       handleUntaggedKlass,
-                                       &freshlyTagged);
-    ASSERT_NO_JVMTI_ERR(env, err);
-
-    err =
+    jvmtiError err =
       env->IterateOverHeap(JVMTI_HEAP_OBJECT_UNTAGGED,
                            handleUntaggedObject,
                            &freshlyTagged);
@@ -1556,6 +1638,10 @@ void JNICALL VMDeath(jvmtiEnv *jvmti_env, JNIEnv *jni_env) {
   if (traceToDisk) {
     close(capnproto_fd);
   }
+
+  for (auto const& it : klassReps) {
+    DODBG("klass "<<it.first<<" -> "<<it.second);
+  }
 #endif // ifdef ENABLED
 }
 
@@ -1624,7 +1710,7 @@ JNIEXPORT jint JNICALL Agent_OnLoad(JavaVM *vm, char *options, void *reserved) {
     onlyDuringLivePhaseMatch.push_back("java/lang/ref");
     onlyDuringLivePhaseMatch.push_back("java/security/AccessControlContext");
     //onlyDuringLivePhaseMatch.push_back("java/util/Arrays");
-    onlyDuringLivePhaseMatch.push_back("java/util/HashMap");
+    // arst arst arst onlyDuringLivePhaseMatch.push_back("java/util/HashMap");
     onlyDuringLivePhaseMatch.push_back("java/util/Hashtable");
     onlyDuringLivePhaseMatch.push_back("java/util/LinkedList$ListItr");
     onlyDuringLivePhaseMatch.push_back("java/util/Locale/");
