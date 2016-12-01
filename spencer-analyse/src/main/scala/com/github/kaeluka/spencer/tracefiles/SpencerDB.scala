@@ -139,14 +139,26 @@ class SpencerDB(val keyspace: String) {
             EventsUtil.messageToString(evt))
         case AnyEvt.Which.FIELDSTORE =>
           val fstore = evt.getFieldstore
-          openEdge(
-            caller = fstore.getHoldertag,
-            callee = fstore.getNewval,
-            kind = "field",
-            name = fstore.getFname.toString,
-            thread = fstore.getThreadName.toString,
-            start = idx,
-            comment = EventsUtil.messageToString(evt))
+//          assert(fstore.getHoldertag != 0, s"edge caller is 0! ${EventsUtil.fieldStoreToString(fstore)}")
+          insertUse(
+            caller = 0,
+            callee = 0,
+            method ="",
+            kind = "",
+            name = "",
+            idx = 0,
+            thread = "",
+            comment = EventsUtil.fieldStoreToString(fstore))
+          if (fstore.getNewval != 0) {
+            openEdge(
+              holder = fstore.getHoldertag,
+              callee = fstore.getNewval,
+              kind = "field",
+              name = fstore.getFname.toString,
+              thread = fstore.getThreadName.toString,
+              start = idx,
+              comment = EventsUtil.fieldStoreToString(fstore))
+          }
 
         case AnyEvt.Which.METHODENTER =>
           val menter = evt.getMethodenter
@@ -161,7 +173,7 @@ class SpencerDB(val keyspace: String) {
         case AnyEvt.Which.METHODEXIT =>
           val mexit = evt.getMethodexit
           try {
-            val (calleeTag: Long, variables : Array[Long]) = stacks.peek(mexit.getThreadName.toString) match {
+            val (returningObjTag: Long, variables : Array[Long]) = stacks.peek(mexit.getThreadName.toString) match {
               case Some(idxdEnter) => (idxdEnter.enter.getCalleetag, idxdEnter.usedVariables)
               case None => 4 // SPECIAL_VAL_JVM
             }
@@ -174,7 +186,7 @@ class SpencerDB(val keyspace: String) {
                 }
                 insertCall(
                   caller = callerTag,
-                  callee = calleeTag,
+                  callee = returningObjTag,
                   name = menter.enter.getName.toString,
                   start = menter.idx,
                   end = idx,
@@ -186,15 +198,12 @@ class SpencerDB(val keyspace: String) {
                 var Nvars = variables.length
                 while (i < Nvars) {
                   if (variables(i) > 0) {
+                    assert(returningObjTag != 0, s"returningObj can't be 0! ${EventsUtil.methodExitToString(mexit)}")
                     closeEdge(
-                      caller  = calleeTag,
-                      callee  = calleeTag,
+                      holder  = returningObjTag,
                       kind    = "var",
-                      name    = "var_"+i,
-                      thread  = mexit.getThreadName.toString,
                       start   = variables(i),
-                      end     = idx,
-                      comment = EventsUtil.messageToString(evt))
+                      end     = idx)
                   }
                   i+=1
                 }
@@ -210,7 +219,9 @@ class SpencerDB(val keyspace: String) {
             , "<jvm internals>"
             , -1, "late initialisation")
           for (fld <- lateinit.getFields) {
-            openEdge(lateinit.getCalleetag, fld.getVal, "field", fld.getName.toString, "<JVM thread>", 1, "")
+            if (fld.getVal != 0) {
+              openEdge(lateinit.getCalleetag, fld.getVal, "field", fld.getName.toString, "<JVM thread>", 1, "")
+            }
           }
         case AnyEvt.Which.READMODIFY =>
 
@@ -241,16 +252,29 @@ class SpencerDB(val keyspace: String) {
             EventsUtil.messageToString(evt))
         case AnyEvt.Which.VARSTORE =>
           val varstore: Events.VarStoreEvt.Reader = evt.getVarstore
-          stacks.markVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
+          if (! stacks.peek(varstore.getThreadName.toString).map(_.enter.getCalleetag).contains(varstore.getCallertag) ) {
+            println(s"at ${idx}: ${stacks.peek(varstore.getThreadName.toString)}: varstore is ${EventsUtil.varStoreToString(varstore)}")
+          }
+          val refOpened = stacks.markVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
+          if (refOpened > 0) {
+            assert(varstore.getCallertag != 0, s"caller must not be 0: ${EventsUtil.varStoreToString(varstore)}")
+            closeEdge(
+              holder = varstore.getCallertag,
+              kind = "var",
+              start = refOpened,
+              end = idx)
+          }
 
-          openEdge(
-            caller  = varstore.getCallertag,
-            callee  = varstore.getNewval,
-            kind    = "var",
-            name    = "var_"+varstore.getVar,
-            thread  = varstore.getThreadName.toString,
-            start   = idx,
-            comment = EventsUtil.messageToString(evt))
+          if (varstore.getNewval != 0) {
+            openEdge(
+              holder = varstore.getCallertag,
+              callee = varstore.getNewval,
+              kind = "var",
+              name = "var_" + varstore.getVar,
+              thread = varstore.getThreadName.toString,
+              start = idx,
+              comment = EventsUtil.messageToString(evt))
+          }
         case other =>
           throw new IllegalStateException(
             "do not know how to handle event kind " + other)
@@ -272,15 +296,9 @@ class SpencerDB(val keyspace: String) {
   }
 
   def insertObject(tag: Long, klass: String, allocationsitefile: String, allocationsiteline: Long, thread: String, comment: String = "none") {
-    //    if (! session.execute("SELECT id FROM "+this.keyspace+".objects WHERE id = "+tag).isExhausted) {
-    //      throw new IllegalStateException("already have object #"+tag);
-    //    }
-    //      session.executeAsync("INSERT INTO objects(id, klass, comment) VALUES("
-    //        + tag + ", '"
-    //        + klass + "', '"
-    //        + comment + "');")
     assert(allocationsitefile != null)
     assert(thread != null)
+    assert(tag != 0)
     session.executeAsync(this.insertObjectStatement.bind(
       tag : java.lang.Long,
       klass.replace('/','.'),
@@ -291,6 +309,9 @@ class SpencerDB(val keyspace: String) {
   }
 
   def insertEdge(caller: Long, callee: Long, kind: String, name: String, thread: String, start: Long, end: Long, comment: String = "none") {
+    assert(caller != 0, "caller can't be 0")
+    assert(callee != 0, "callee can't be 0")
+    assert(kind != null && kind.equals("var") || kind.equals("field"), "kind must be 'var' or 'field'")
     session.executeAsync(this.insertEdgeStatement.bind(
       caller : java.lang.Long,
       callee : java.lang.Long,
@@ -302,9 +323,12 @@ class SpencerDB(val keyspace: String) {
       if (saveOrigin) comment else ""))
   }
 
-  def openEdge(caller: Long, callee: Long, kind: String, name: String, thread: String, start: Long, comment: String = "none") {
+  def openEdge(holder: Long, callee: Long, kind: String, name: String, thread: String, start: Long, comment: String = "none") {
+    assert(callee != 0, s"callee must not be 0: $comment")
+    assert(kind != null && kind.equals("var") || kind.equals("field"), "kind must be 'var' or 'field'")
+    assert(holder != 0, s"holder must not be 0: $comment")
     session.executeAsync(this.insertEdgeOpenStatement.bind(
-      caller : java.lang.Long,
+      holder : java.lang.Long,
       callee : java.lang.Long,
       kind,
       name,
@@ -313,8 +337,10 @@ class SpencerDB(val keyspace: String) {
       if (saveOrigin) comment else ""))
   }
 
-  def closeEdge(caller: Long, callee: Long, kind: String, name: String, thread: String, start: Long, end: Long, comment: String = "none") {
-    session.executeAsync(this.finishEdgeStatement.bind(end : java.lang.Long, kind, start : java.lang.Long, caller : java.lang.Long))
+  def closeEdge(holder: java.lang.Long, kind: String, start: Long, end: Long) {
+    assert(holder != null && holder != 0, "must have non-zero caller")
+    assert(kind != null   && kind.equals("var") || kind.equals("field"), "kind must be 'var' or 'field'")
+    session.executeAsync(this.finishEdgeStatement.bind(end : java.lang.Long, kind, start : java.lang.Long, holder : java.lang.Long))
   }
 
   def insertUse(caller: Long, callee: Long, method: String, kind: String, name: String, idx: Long, thread: String, comment: String = "none") {
@@ -411,10 +437,13 @@ class SpencerDB(val keyspace: String) {
   }
 
   def getTable(table: String): CassandraTableScanRDD[CassandraRow] = {
+    assert(this.sc != null, "need to have spark context")
+    assert(this.session != null, "need to have db session")
     this.sc.cassandraTable(this.session.getLoggedKeyspace, table)
   }
 
   def getProperObjects: RDD[CassandraRow] = {
+    //FIXME: use WHERE clause
     getTable("objects")
       .filter(_.getLong("id") > 0)
       .filter(
@@ -424,24 +453,25 @@ class SpencerDB(val keyspace: String) {
 
   def computeEdgeEnds(): Unit = {
     val groupedAssignments = this.getTable("refs")
-      .select("caller", "callee", "name", "start", "kind")
-      .groupBy(row => (row.getLong("caller"), row.getStringOption("name")))
-      .filter(_._1._2.nonEmpty)
-      .map({case ((caller, Some(name)), rows) =>
+      .where("kind = 'field'")
+      .select("caller", "name", "start", "kind")
+      .groupBy(row => (row.getLong("caller"), row.getString("name")))
+      .map({case ((caller, name), rows) =>
         val sorted =
           rows.toSeq.sortBy(_.getLong("start"))
             .map(row =>
-              (row.getLong("start"), row.getLong("callee").asInstanceOf[VertexId], row.getString("kind"))
+              (row.getLong("start"), row.getString("kind"))
             )
-        (caller, name, sorted)
-      }).collect()
+        (caller, sorted)
+      })
+      .collect()
 
     var cnt = 0
-    for ((caller, name, assignments) <- groupedAssignments) {
-      for (i <- 1 to (assignments.size-2)) {
+    for ((caller, assignments) <- groupedAssignments) {
+      for (i <- 0 to (assignments.size-2)) {
         (assignments(i), assignments(i+1)) match {
-          case ((start, callee, kind), (end, _, _)) =>
-            session.executeAsync(this.finishEdgeStatement.bind(end : java.lang.Long, kind, start : java.lang.Long, caller : java.lang.Long))
+          case ((start, kind), (end, _)) =>
+            closeEdge(caller, kind, start, end)
             cnt = cnt + 1
         }
       }
@@ -450,9 +480,7 @@ class SpencerDB(val keyspace: String) {
   }
 
   def computeLastObjUsages(): Unit = {
-    if (! this.isSparkStarted) {
-      throw new AssertionError()
-    }
+    assert(this.isSparkStarted, "spark must be started in computeLastObjUsages")
 
     //the first action involving an object is always its constructor call
     val firstLastCalls = this.getTable("calls")
@@ -472,7 +500,7 @@ class SpencerDB(val keyspace: String) {
           case (id, rows) =>
             (id, (rows.map(_.getLong("idx")).min, rows.map(_.getLong("idx")).max))
         })
-
+      .filter(_._1 != 0)
 
     val joined = firstLastCalls.fullOuterJoin(firstLastUsages)
       .map({
@@ -481,24 +509,21 @@ class SpencerDB(val keyspace: String) {
         case (id, (Some((min1, max1)), Some((min2, max2)))) =>
           (id, (Math.min(min1, min2), Math.max(max1, max2)))
       }).collect()
-//    val joined = firstLastCalls.join(firstLastUsages)
-//      .map({
-//        case (id, ((min1, max1), (min2, max2))) =>
-//          (id, (Math.min(min1, min2), Math.max(max1, max2)))
-//      }).collect()
+
+    assert(joined.find(_._1 == 0).isEmpty, "can not have id = 0")
 
     for (firstLastUsage <- joined) {
       firstLastUsage match {
         case (id, (fst, lst)) =>
+          assert(id != 0, "id must not be 0")
           this.session.execute(
             "  UPDATE objects " +
               "SET " +
-              "  firstUsage = " + fst + ", " +
-              "  lastUsage  = " + lst +
+              s"  firstUsage = ${fst}, " +
+              s"  lastUsage  = ${lst}" +
               "WHERE id = " + id)
       }
     }
-
   }
 
   def generatePerClassObjectsTable(): Unit = {
@@ -574,8 +599,8 @@ class SpencerDB(val keyspace: String) {
         if ((i-1) % 1e5 == 0) {
           println("#" + ((i-1) / 1e6).toFloat + "e6..")
         }
-        i += 1
       }
+      i += 1
     }
     println("loading "+(i-1)+" events took "+stopwatch.stop())
     computeEdgeEnds()
@@ -657,6 +682,9 @@ class SpencerDB(val keyspace: String) {
       "PRIMARY KEY(caller, kind, start)) " +
       "WITH COMPRESSION = {};")
 
+    // allows to select efficiently using WHERE kind = 'var' in computeEdgeEnds
+    session.execute(s"CREATE INDEX ON ${keyspace}.refs (KIND);")
+
     session.execute(s"CREATE TABLE ${keyspace}.calls(" +
       "caller bigint, callee bigint, " +
       "name text, " +
@@ -680,12 +708,11 @@ class SpencerDB(val keyspace: String) {
     this.session = cluster.connect(keyspace)
 
     this.insertObjectStatement = this.session.prepare("INSERT INTO objects(id, klass, allocationSiteFile, allocationSiteLine, thread, comment) VALUES(?, ?, ?, ?, ?, ?);")
-    this.insertEdgeStatement = this.session.prepare("INSERT INTO " + this.keyspace + ".refs(caller, callee, kind, name, thread, start, end, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
-    this.insertEdgeOpenStatement = this.session.prepare("INSERT INTO " + this.keyspace + ".refs(caller, callee, kind, name, thread, start, comment) VALUES(?, ?, ?, ?, ?, ?, ?);")
-    this.finishEdgeStatement = this.session.prepare("UPDATE " + this.keyspace + ".refs SET end = ? WHERE kind = ? AND start = ? AND caller = ?;")
+    this.insertEdgeStatement = this.session.prepare(s"INSERT INTO ${this.keyspace}.refs(caller, callee, kind, name, thread, start, end, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
+    this.insertEdgeOpenStatement = this.session.prepare(s"INSERT INTO ${this.keyspace}.refs(caller, callee, kind, name, thread, start, comment) VALUES(?, ?, ?, ?, ?, ?, ?);")
+    this.finishEdgeStatement = this.session.prepare(s"UPDATE ${this.keyspace}.refs SET end = ? WHERE kind = ? AND start = ? AND caller = ?;")
 
-    this.insertCallStatement = this.session.prepare("INSERT INTO "
-      + this.keyspace + ".calls(caller, callee, name, start, end, thread, callsitefile, callsiteline, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);")
-    this.insertUseStatement = this.session.prepare("INSERT INTO " + this.keyspace + ".uses(caller, callee, method, kind, name, idx, thread, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
+    this.insertCallStatement = this.session.prepare(s"INSERT INTO ${this.keyspace}.calls(caller, callee, name, start, end, thread, callsitefile, callsiteline, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);")
+    this.insertUseStatement = this.session.prepare(s"INSERT INTO ${this.keyspace}.uses(caller, callee, method, kind, name, idx, thread, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
   }
 }

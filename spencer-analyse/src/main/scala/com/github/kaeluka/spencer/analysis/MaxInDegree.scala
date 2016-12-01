@@ -144,19 +144,19 @@ case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) ex
     val refs: CassandraTableScanRDD[CassandraRow] = g.db.getTable("refs")
 
     (spec match {
+        //fixme: these should be WHERE clauses:
       case HEAP => refs.filter(_.getString("kind") == "field")
       case STACK => refs.filter(_.getString("kind") == "var")
       case HEAP_OR_STACK => refs
     }).map(row => (row.getLong("callee").asInstanceOf[VertexId], row.getLongOption("start"), row.getLongOption("end")))
       .groupBy(_._1)
       .map({ case (callee, edgesIter) => (callee, edgesIter.map(x => (x._2, x._3)).toSeq.sortBy(_._1)) })
-      .flatMap({ case (callee, edges) => {
+      .flatMap({ case (callee, edges) =>
         if (p(MaxInDegree.highestOverlap(edges))) {
           Some(callee)
         } else {
           None
         }
-      }
       })
   }
 

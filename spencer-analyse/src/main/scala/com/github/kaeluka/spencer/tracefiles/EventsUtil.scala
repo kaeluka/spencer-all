@@ -103,10 +103,11 @@ object EventsUtil {
       " , thread=" + mthdEnter.getThreadName
   }
 
-  def fieldStoreToString(fstore: FieldStoreEvt.Reader ): String = {
+  def fieldStoreToString(fstore: FieldStoreEvt.Reader): String = {
     "fieldStore -" +
       " caller=" + fstore.getCallerclass + " :: " + fstore.getCallermethod + " @ " + fstore.getCallertag +
-      " , field=" + fstore.getHolderclass + " :: " + fstore.getType + " " + fstore.getFname + " @ " + fstore.getHoldertag +
+      " , holder="+fstore.getHolderclass + " @ " + fstore.getHoldertag +
+      " , field=" + fstore.getType + " " + fstore.getFname +
       " , value= was " + fstore.getOldval + " , is " + fstore.getNewval +
       " , thread=" + fstore.getThreadName
   }
@@ -114,7 +115,8 @@ object EventsUtil {
   def fieldLoadToString(fload: FieldLoadEvt.Reader ): String = {
     "fieldLoad -" +
       " caller=" + fload.getCallerclass + " :: " + fload.getCallermethod + " @ " + fload.getCallertag +
-      " , field=" + fload.getHolderclass + " :: " + fload.getType + " " + fload.getFname + " @ " + fload.getHoldertag +
+      " , holder="+fload.getHolderclass + " @ " + fload.getHoldertag +
+      " , field=" + fload.getType + " " + fload.getFname +
       " , thread=" + fload.getThreadName
   }
 

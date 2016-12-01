@@ -22,9 +22,7 @@ object spencercat extends App {
 
     var cnt = 1
     while (iter.hasNext) {
-      val evt: AnyEvt.Reader = iter.next
-      val string: String = EventsUtil.messageToString(evt)
-      println("#" + cnt + ": " + string)
+      println(s"#$cnt: ${EventsUtil.messageToString(iter.next)}")
       cnt += 1
     }
   }

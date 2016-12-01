@@ -50,7 +50,7 @@ class CallStackAbstraction {
     stacks.get(thdName).push(new IndexedEnter(idx, methodenter, new Array[Long](5)))
   }
 
-  def markVarAsUsed(thdName: String, idx: Int, start: Long): Unit = {
+  def markVarAsUsed(thdName: String, idx: Int, start: Long): Long = {
     val otop = this.peek(thdName)
     otop match {
       case Some(top) => {
@@ -59,10 +59,12 @@ class CallStackAbstraction {
           top.usedVariables = new Array[Long](idx*2)
           System.arraycopy (arr, 0, top.usedVariables, 0, arr.length)
         }
-        top.usedVariables (idx) = start
+        val ret = top.usedVariables(idx)
+        top.usedVariables(idx) = start
+        ret
       }
       case None => {
-        ()
+        0
       }
     }
   }
