@@ -262,10 +262,21 @@ class SpencerDB(val keyspace: String) {
             comment = if (saveOrigin) EventsUtil.messageToString(evt) else "")
         case AnyEvt.Which.VARSTORE =>
           val varstore: Events.VarStoreEvt.Reader = evt.getVarstore
+          // step 1: emit use:
+          insertUse(
+            caller = varstore.getCallertag,
+            callee = varstore.getCallertag,
+            method = varstore.getCallermethod.toString,
+            kind = "varstore",
+            name ="var_"+varstore.getVar.toString,
+            idx = idx,
+            thread = varstore.getThreadName.toString,
+            comment = if (saveOrigin) EventsUtil.messageToString(evt) else "")
           if (! stacks.peek(varstore.getThreadName.toString).map(_.enter.getCalleetag).contains(varstore.getCallertag) ) {
             println(s"at $idx: ${stacks.peek(varstore.getThreadName.toString)}: varstore is ${EventsUtil.varStoreToString(varstore)}")
           }
 
+          //step 2: set close old reference (if there was one):
           val whenUsed = stacks.whenWasVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
           if (whenUsed > 0) {
             assert(varstore.getCallertag != 0, s"caller must not be 0: ${EventsUtil.varStoreToString(varstore)}")
@@ -276,6 +287,7 @@ class SpencerDB(val keyspace: String) {
               end = idx)
           }
 
+          //step 3: open new reference (if there is one):
           if (varstore.getNewval != 0) {
             stacks.markVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
             openEdge(
