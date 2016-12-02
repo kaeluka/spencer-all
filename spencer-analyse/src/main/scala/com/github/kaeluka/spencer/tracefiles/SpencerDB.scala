@@ -141,22 +141,22 @@ class SpencerDB(val keyspace: String) {
           val fstore = evt.getFieldstore
 //          assert(fstore.getHoldertag != 0, s"edge caller is 0! ${EventsUtil.fieldStoreToString(fstore)}")
           insertUse(
-            caller = fstore.getCallertag,
-            callee = fstore.getHoldertag,
-            method = fstore.getCallermethod.toString,
-            kind = "fieldstore",
-            name = fstore.getFname.toString,
-            idx = idx,
-            thread = fstore.getThreadName.toString,
+            caller  = fstore.getCallertag,
+            callee  = fstore.getHoldertag,
+            method  = fstore.getCallermethod.toString,
+            kind    = "fieldstore",
+            name    = fstore.getFname.toString,
+            idx     = idx,
+            thread  = fstore.getThreadName.toString,
             comment = EventsUtil.fieldStoreToString(fstore))
           if (fstore.getNewval != 0) {
             openEdge(
-              holder = fstore.getHoldertag,
-              callee = fstore.getNewval,
-              kind = "field",
-              name = fstore.getFname.toString,
-              thread = fstore.getThreadName.toString,
-              start = idx,
+              holder  = fstore.getHoldertag,
+              callee  = fstore.getNewval,
+              kind    = "field",
+              name    = fstore.getFname.toString,
+              thread  = fstore.getThreadName.toString,
+              start   = idx,
               comment = EventsUtil.fieldStoreToString(fstore))
           }
 
@@ -185,29 +185,32 @@ class SpencerDB(val keyspace: String) {
                   case None => 4 // SPECIAL_VAL_JVM
                 }
                 insertCall(
-                  caller = callerTag,
-                  callee = returningObjTag,
-                  name = menter.enter.getName.toString,
-                  start = menter.idx,
-                  end = idx,
-                  thread = menter.enter.getThreadName.toString,
+                  caller       = callerTag,
+                  callee       = returningObjTag,
+                  name         = menter.enter.getName.toString,
+                  start        = menter.idx,
+                  end          = idx,
+                  thread       = menter.enter.getThreadName.toString,
                   callSiteFile = menter.enter.getCallsitefile.toString,
                   callSiteLine = menter.enter.getCallsiteline,
-                  comment = "")
+                  comment      = "")
                 var i = 0
                 var Nvars = variables.length
                 while (i < Nvars) {
                   if (variables(i) > 0) {
                     assert(returningObjTag != 0, s"returningObj can't be 0! ${EventsUtil.methodExitToString(mexit)}")
-                    if (returningObjTag == 28575 ) {
-                      println(menter)
-                      println(s"#${idx}: ${EventsUtil.methodExitToString(mexit)}")
+                    try {
+                      closeEdge(
+                        holder  = returningObjTag,
+                        kind    = "var",
+                        start   = variables(i),
+                        end     = idx)
+                    } catch {
+                      case e: AssertionError =>
+                        println("method enter was: "+menter)
+                        println(s"method exit was:  #$idx: ${EventsUtil.methodExitToString(mexit)}")
+                        throw e
                     }
-                    closeEdge(
-                      holder  = returningObjTag,
-                      kind    = "var",
-                      start   = variables(i),
-                      end     = idx)
                   }
                   i+=1
                 }
@@ -237,39 +240,44 @@ class SpencerDB(val keyspace: String) {
           } else {
             "read"
           }
-          insertUse(caller, callee,
-            stacks.peek(readmodify.getThreadName.toString).map(_.enter.getName.toString).getOrElse("<unknown>"),
-            kind,
-            readmodify.getFname.toString,
-            idx,
-            readmodify.getThreadName.toString,
-            if (saveOrigin) EventsUtil.messageToString(evt) else "")
+          insertUse(
+            caller = caller,
+            callee = callee,
+            method = stacks.peek(readmodify.getThreadName.toString).map(_.enter.getName.toString).getOrElse("<unknown>"),
+            kind = kind,
+            name = readmodify.getFname.toString,
+            idx = idx,
+            thread = readmodify.getThreadName.toString,
+            comment = if (saveOrigin) EventsUtil.messageToString(evt) else "")
         case AnyEvt.Which.VARLOAD =>
           val varload: Events.VarLoadEvt.Reader = evt.getVarload
-          insertUse(varload.getCallertag,
-            varload.getVal,
-            varload.getCallermethod.toString,
-            "varload",
-            "var_"+varload.getVar.toString,
-            idx,
-            varload.getThreadName.toString,
-            EventsUtil.messageToString(evt))
+          insertUse(
+            caller = varload.getCallertag,
+            callee = varload.getCallertag,
+            method = varload.getCallermethod.toString,
+            kind = "varload",
+            name ="var_"+varload.getVar.toString,
+            idx = idx,
+            thread = varload.getThreadName.toString,
+            comment = if (saveOrigin) EventsUtil.messageToString(evt) else "")
         case AnyEvt.Which.VARSTORE =>
           val varstore: Events.VarStoreEvt.Reader = evt.getVarstore
           if (! stacks.peek(varstore.getThreadName.toString).map(_.enter.getCalleetag).contains(varstore.getCallertag) ) {
-            println(s"at ${idx}: ${stacks.peek(varstore.getThreadName.toString)}: varstore is ${EventsUtil.varStoreToString(varstore)}")
+            println(s"at $idx: ${stacks.peek(varstore.getThreadName.toString)}: varstore is ${EventsUtil.varStoreToString(varstore)}")
           }
-          val refOpened = stacks.markVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
-          if (refOpened > 0) {
+
+          val whenUsed = stacks.whenWasVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
+          if (whenUsed > 0) {
             assert(varstore.getCallertag != 0, s"caller must not be 0: ${EventsUtil.varStoreToString(varstore)}")
             closeEdge(
               holder = varstore.getCallertag,
               kind = "var",
-              start = refOpened,
+              start = whenUsed,
               end = idx)
           }
 
           if (varstore.getNewval != 0) {
+            stacks.markVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
             openEdge(
               holder = varstore.getCallertag,
               callee = varstore.getNewval,
@@ -278,6 +286,8 @@ class SpencerDB(val keyspace: String) {
               thread = varstore.getThreadName.toString,
               start = idx,
               comment = EventsUtil.messageToString(evt))
+          } else {
+            stacks.markVarAsUnused(varstore.getThreadName.toString, varstore.getVar)
           }
         case other =>
           throw new IllegalStateException(
@@ -329,8 +339,8 @@ class SpencerDB(val keyspace: String) {
 
   def openEdge(holder: Long, callee: Long, kind: String, name: String, thread: String, start: Long, comment: String = "none") {
     assert(callee != 0, s"callee must not be 0: $comment")
-    assert(kind != null && kind.equals("var") || kind.equals("field"), "kind must be 'var' or 'field'")
     assert(holder != 0, s"holder must not be 0: $comment")
+    assert(kind != null && kind.equals("var") || kind.equals("field"), "kind must be 'var' or 'field'")
     session.executeAsync(this.insertEdgeOpenStatement.bind(
       holder : java.lang.Long,
       callee : java.lang.Long,
@@ -341,13 +351,20 @@ class SpencerDB(val keyspace: String) {
       if (saveOrigin) comment else ""))
   }
 
-  def closeEdge(holder: java.lang.Long, kind: String, start: Long, end: Long) {
-    assert(holder != null && holder != 0, "must have non-zero caller")
-    assert(kind != null   && kind.equals("var") || kind.equals("field"), "kind must be 'var' or 'field'")
+  def closeEdge(holder: Long, kind: String, start: Long, end: Long) {
+    assert(holder != 0, "must have non-zero caller")
+    assert(kind != null   && kind.equals("var") || kind.equals("field"), s"kind must be 'var' or 'field', but is $kind")
+//    assert(getTable("refs").where("kind = ? AND start = ? AND caller = ?", kind, start, holder).count == 1, s"trying to close edge from $start -- $end: must have exactly one in refs: record with (kind, start, holder) = ${(kind, start, holder)}")
     session.executeAsync(this.finishEdgeStatement.bind(end : java.lang.Long, kind, start : java.lang.Long, holder : java.lang.Long))
   }
 
   def insertUse(caller: Long, callee: Long, method: String, kind: String, name: String, idx: Long, thread: String, comment: String = "none") {
+    assert(caller != 0, s"caller must not be 0: $comment")
+    assert(callee != 0, s"callee must not be 0: $comment")
+    assert(method != null && method.length > 0, "method name must be given")
+    assert(kind != null   && kind.equals("fieldstore") || kind.equals("fieldload") ||kind.equals("varload") ||  kind.equals("varstore") || kind.equals("read") || kind.equals("modify"), s"kind must be 'varstore/load' or 'fieldstore/load' or 'read' or 'modify', but is $kind")
+    assert(idx > 0)
+    assert(thread != null && thread.length > 0, "thread name must be given")
 
     session.executeAsync(this.insertUseStatement.bind(
       caller : java.lang.Long,

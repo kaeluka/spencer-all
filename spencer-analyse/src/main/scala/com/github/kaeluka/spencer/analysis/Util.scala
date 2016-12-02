@@ -50,23 +50,35 @@ class CallStackAbstraction {
     stacks.get(thdName).push(new IndexedEnter(idx, methodenter, new Array[Long](5)))
   }
 
-  def markVarAsUsed(thdName: String, idx: Int, start: Long): Long = {
+  def whenWasVarAsUsed(thdName: String, idx: Int, start: Long): Long = {
     val otop = this.peek(thdName)
     otop match {
-      case Some(top) => {
+      case Some(top) =>
+        if (top.usedVariables.length > idx)
+          top.usedVariables(idx)
+        else
+          0
+      case None =>
+        0
+    }
+  }
+  def markVarAsUsed(thdName: String, idx: Int, start: Long): Unit = {
+    val otop = this.peek(thdName)
+    otop match {
+      case Some(top) =>
         val arr = top.usedVariables
         if (idx >= arr.length) {
           top.usedVariables = new Array[Long](idx*2)
           System.arraycopy (arr, 0, top.usedVariables, 0, arr.length)
         }
-        val ret = top.usedVariables(idx)
         top.usedVariables(idx) = start
-        ret
-      }
-      case None => {
-        0
-      }
+      case None =>
+        ()
     }
+  }
+
+  def markVarAsUnused(thdName: String, idx: Int): Unit = {
+    this.markVarAsUsed(thdName, idx, 0)
   }
 
   def pop(methodexit: Events.MethodExitEvt.Reader): Either[IndexedEnter, IndexedEnter] = {
