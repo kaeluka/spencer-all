@@ -100,9 +100,10 @@ object SpencerDB {
       val conf = new SparkConf()
         .setAppName("spencer-analyse")
         .set("spark.cassandra.connection.host", "127.0.0.1")
+        .set("spark.network.timeout", "1000")
         //      .set("spark.cassandra.connection.host", "130.238.10.30")
         //      .setMaster("spark://Stephans-MacBook-Pro.local:7077")
-        //      .set("spark.executor.memory", "4g").set("worker_max_heap", "1g")
+//              .set("spark.executor.memory", "4g").set("worker_max_heap", "1g")
         .setMaster("local[8]")
 
       SpencerDB.sc = new SparkContext(conf)
