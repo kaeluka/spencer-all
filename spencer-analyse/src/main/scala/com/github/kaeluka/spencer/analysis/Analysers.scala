@@ -57,7 +57,7 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
         val resultSerialised = snapshots.first().getBytes("result")
         println(s"snapshot for query $queryString: reading ${resultSerialised.array().length} bytes")
         val ois: ObjectInputStream = new ObjectInputStream(new ByteArrayInputStream(resultSerialised.array()))
-        val res = g.db.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
+        val res = SpencerDB.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
         println(s"deserialising took $watch")
         res
       }
@@ -210,7 +210,7 @@ case class PerClass[U: ClassTag](f : (Option[String], Iterable[VertexId]) => Opt
     if (classTag[U].toString.contains("RDD") /* hack */) {
       grouped.flatMap({case (loc, it) => f(loc, it)})
     } else {
-      g.db.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
+      SpencerDB.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
     }
   }
 
@@ -229,7 +229,7 @@ case class PerAllocationSite[U: ClassTag](f : ((Option[String], Option[Long]), I
     if (classTag[U].toString.contains("RDD") /* hack */) {
       grouped.flatMap({case (loc, it) => f(loc, it)})
     } else {
-      g.db.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
+      SpencerDB.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
     }
   }
 

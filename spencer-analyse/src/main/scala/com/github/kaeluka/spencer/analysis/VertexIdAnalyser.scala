@@ -3,6 +3,7 @@ package com.github.kaeluka.spencer.analysis
 import com.datastax.driver.core.TableMetadata
 import com.datastax.spark.connector.CassandraRow
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
+import com.github.kaeluka.spencer.tracefiles.SpencerDB
 import com.google.common.base.Stopwatch
 import org.apache.spark.graphx._
 import org.apache.spark.rdd.RDD
@@ -165,7 +166,7 @@ case class ImmutableObj() extends VertexIdAnalyser {
         .filter(_.getString("method") != "<init>")
         .map(_.getLong("callee")).distinct()
 
-    g.db.sc.parallelize(objects).subtract(written).setName("all objects minus mutables")
+    SpencerDB.sc.parallelize(objects).subtract(written).setName("all objects minus mutables")
   }
 
   override def explanation(): String = "are never changed outside their constructor"
@@ -313,7 +314,7 @@ case class ObjWithInstanceCountAtLeast(n : Int) extends VertexIdAnalyser {
 
 case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-    g.db.sc.parallelize(value)
+    SpencerDB.sc.parallelize(value)
   }
 
   override def pretty(result: RDD[VertexId]): String = {
