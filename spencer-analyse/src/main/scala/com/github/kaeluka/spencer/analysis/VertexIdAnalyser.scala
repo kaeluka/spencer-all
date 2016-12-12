@@ -1,8 +1,6 @@
 package com.github.kaeluka.spencer.analysis
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
-import java.nio.ByteBuffer
-
+import com.datastax.driver.core.TableMetadata
 import com.datastax.spark.connector.CassandraRow
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
 import com.google.common.base.Stopwatch
@@ -11,44 +9,8 @@ import org.apache.spark.rdd.RDD
 
 trait VertexIdAnalyser extends SpencerAnalyser[RDD[VertexId]] {
 
-  def and(other: VertexIdAnalyser) : VertexIdAnalyser = {
-    if (other.isInstanceOf[Obj]) {
-      this
-    } else if (this.isInstanceOf[Obj]) {
-      other
-    } else {
-      new VertexIdAnalyser {
-        override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-          this.analyse.intersection(other.analyse)
-        }
-
-        override def explanation(): String = VertexIdAnalyser.this.explanation() + ", and that " + other.explanation()
-
-        override def toString: String = "And(" + VertexIdAnalyser.this.toString + " " + other.toString + ")"
-      }
-    }
-  }
-
   def snapshotted() : VertexIdAnalyser = {
     SnapshottedVertexIdAnalyser(this)
-  }
-
-  def or(other: VertexIdAnalyser) : VertexIdAnalyser = {
-    if (other.isInstanceOf[Obj]) {
-      other
-    } else if (this.isInstanceOf[Obj]) {
-      this
-    } else {
-      new VertexIdAnalyser {
-        override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-          this.analyse.union(other.analyse)
-        }
-
-        override def explanation(): String = VertexIdAnalyser.this.explanation() + ", or that " + other.explanation()
-
-        override def toString: String = "And(" + VertexIdAnalyser.this.toString + " " + other.toString + ")"
-      }
-    }
   }
 
   override def pretty(result: RDD[VertexId]): String = {
@@ -62,36 +24,124 @@ trait VertexIdAnalyser extends SpencerAnalyser[RDD[VertexId]] {
   }
 }
 
-case class SnapshottedVertexIdAnalyser(inner : VertexIdAnalyser) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-    if (inner.isInstanceOf[SnapshottedVertexIdAnalyser]) {
-      inner.analyse
+object And {
+  def apply(vs: Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
+    println(s"AND of ${vs.mkString("[", ", ", "]")}")
+    println(s"AND of ${vs.map(_.getClass.getName).mkString("[", ", ", "]")}")
+    val vs_ = vs
+      .filter(_.toString != "Obj()")
+      .flatMap({
+        case _And(innerVs) => innerVs
+        case other => List(other)
+      })
+    println(s"AND vs_ == ${vs_.mkString("[", ", ", "]")}")
+    assert(vs_.nonEmpty)
+    if (vs_.size == 1) {
+      println(s"returning ${vs_.head}")
+      vs_.head
     } else {
-      val watch: Stopwatch = Stopwatch.createStarted()
-      val queryString = inner.toString
-      val snapshots = g.db.getTable("snapshots").where("query = ?", queryString)
-      assert(snapshots.count == 0 || snapshots.count == 1)
+      println(s"returning ${_And(vs_)}")
+      _And(vs_)
+    }
+  }
+}
 
-      if (snapshots.count == 0) {
-        val result = inner.analyse.cache()
-        val baostream: ByteArrayOutputStream = new ByteArrayOutputStream()
-        val ostream: ObjectOutputStream = new ObjectOutputStream(baostream)
-        ostream.writeObject(result.collect())
+case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerData): RDD[VertexId] = {
+    vs.map(_.analyse).reduce(_ intersection _)
+  }
 
-        val resultSerialised : ByteBuffer = ByteBuffer.wrap(baostream.toByteArray)
-        println(s"snapshot for query $queryString: writing ${resultSerialised.array().length} bytes")
-        g.db.session.execute("INSERT INTO "+g.db.session.getLoggedKeyspace+".snapshots (query, result) VALUES (?, ?);", queryString, resultSerialised)
-        result
-      } else {
-        val resultSerialised = snapshots.first().getBytes("result")
-        println(s"snapshot for query $queryString: reading ${resultSerialised.array().length} bytes")
-        val ois: ObjectInputStream = new ObjectInputStream(new ByteArrayInputStream(resultSerialised.array()))
-        val res = g.db.sc.parallelize(ois.readObject().asInstanceOf[Array[VertexId]])
-        println(s"deserialising took $watch")
-        res
+  override def explanation(): String = vs.map(_.explanation()).mkString(", and ")
+
+  override def toString: String = vs.mkString("And(", " ", ")")
+}
+
+object Or {
+  def apply(vs_ : Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
+    vs_.find(_.toString == "Obj()") match {
+      case Some(q) => q
+      case None => {
+        val vs = vs_
+          .flatMap({
+            case Or_(innerVs) => innerVs
+            case other => List(other)
+          })
+        Or_(vs)
       }
     }
   }
+}
+
+case class Or_(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerData): RDD[VertexId] = {
+    if (vs.contains(Obj())) {
+      Obj().analyse
+    } else {
+      vs.map(_.analyse).reduce(_ union _).distinct()
+    }
+  }
+
+  override def explanation(): String = vs.map(_.explanation()).mkString(", or ")
+
+  override def toString: String = vs.mkString("Or(", " ", ")")
+}
+
+object SnapshottedVertexIdAnalyser {
+  def apply(inner: VertexIdAnalyser) : VertexIdAnalyser = {
+    if (inner.isInstanceOf[_SnapshottedVertexIdAnalyser]) {
+      inner
+    } else {
+      _SnapshottedVertexIdAnalyser(inner)
+    }
+  }
+}
+
+case class _SnapshottedVertexIdAnalyser(inner : VertexIdAnalyser) extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerData): RDD[VertexId] = {
+    println(s"analysing snapshotted ${this.toString}, inner class: ${inner.getClass.getName}")
+    assert(! inner.isInstanceOf[_SnapshottedVertexIdAnalyser])
+    if (inner.isInstanceOf[_SnapshottedVertexIdAnalyser]) {
+      inner.analyse
+    } else {
+      val keyspaceName: String = g.db.session.getLoggedKeyspace
+      val keyspace = g.db.session.getCluster.getMetadata.getKeyspace(keyspaceName)
+      val tblName = ("cache_"+ inner.toString.hashCode.toString+"_"+inner.getClass.getName.toString.hashCode).replace("-", "_")
+      if (keyspace.getTable(tblName) == null) {
+
+        println(s"caching ${inner.toString} in table $tblName")
+        val watch: Stopwatch = Stopwatch.createStarted()
+        val result = inner.analyse
+        println("inner analysed! collecting...")
+        val collectedResult = result.collect()
+        println(s"analysis and collection took $watch")
+        println("creating table...")
+        watch.reset().start()
+        try {
+          g.db.session.execute(s"CREATE TABLE IF NOT EXISTS $keyspaceName.$tblName (id bigint PRIMARY KEY);")
+          println("table created! analysing inner...")
+          println(s"writing ${collectedResult.length} results to table..")
+          var i = 0
+          while (i < collectedResult.length) {
+            g.db.session.execute(s"INSERT INTO $keyspaceName.$tblName (id) VALUES (?);", collectedResult(i) : java.lang.Long)
+            i += 1
+          }
+          println(s"storing to table took $watch")
+        } catch {
+          case e: Throwable =>
+            println(s"ignoring exception: ${e.getMessage}")
+        }
+
+        result
+      } else {
+        println(s"using cache for ${inner.toString}: $tblName")
+        val ret: RDD[VertexId] = g.db.getTable(tblName).select("id").map(_.getLong("id"))
+        println(s"returning ${ret.count} objects from cache")
+        ret
+      }
+    }
+  }
+
+  override def snapshotted(): VertexIdAnalyser = this
 
   override def pretty(result: RDD[VertexId]): String = inner.pretty(result)
 
@@ -341,32 +391,6 @@ case class TinyObj() extends VertexIdAnalyser {
   override def explanation(): String = "do not have or do not use reference type fields"
 }
 
-
-case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(Long, Option[String], Option[String])]] {
-
-  override def analyse(implicit g: SpencerData): RDD[(Long, Option[String], Option[String])] = {
-    val matchingIDs: RDD[VertexId] = inner.analyse(g)
-
-    //    matchingIDs.
-    g.db.getTable("objects")
-      .select("id", "klass", "allocationsitefile", "allocationsiteline")
-      .where("id IN ?", matchingIDs.collect().toList)
-      .map(row =>
-        (
-          row.getLong("id"),
-          row.getStringOption("klass"),
-          row.getStringOption("allocationsitefile").flatMap(file => row.getLongOption("allocationsiteline").map(file+":"+_))))
-  }
-
-  override def pretty(result: RDD[(Long, Option[String], Option[String])]): String = {
-
-    "Satisfying "+inner+":\n\t"+
-      result.collect().mkString("\n")
-  }
-
-  override def explanation(): String = inner.explanation()
-
-}
 
 case class GroupByAllocationSite(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[((Option[String], Option[Long]), Iterable[VertexId])]] {
   override def analyse(implicit g: SpencerData): RDD[((Option[String], Option[Long]), Iterable[VertexId])] = {

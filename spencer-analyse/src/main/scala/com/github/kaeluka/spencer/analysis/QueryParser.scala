@@ -1,15 +1,9 @@
 package com.github.kaeluka.spencer.analysis
 
-import com.github.kaeluka.spencer.analysis.VertexIdAnalyser
 import fastparse.all._
 import fastparse.core.Parsed
-import org.apache.spark.graphx.VertexId
-import org.apache.spark.rdd.RDD
 
 object QueryParser {
-
-//  def complexObjQuery : P[SpencerAnalyser[RDD[VertexId]]] =
-//    objQuery.rep(2, sep="and").map(_.reduce(_ and _)) | objQuery.rep(2, sep="or").map(_.reduce(_ or _)) | objQuery
 
   def objQuery: P[VertexIdAnalyser] =
     primitiveObjQuery | parameterisedObjQuery
@@ -43,24 +37,16 @@ object QueryParser {
     P((CharIn('a' to 'z') | CharIn('A' to 'Z') | "_" | ".").rep(1).! ~ ":" ~ number)
 
   def bigOr =
-    P("Or("~objQuery.rep(2, sep=" ")~")").map(
-      xs => new Named(xs.reduce(_ or _), xs.mkString("Or(", " ", ")")))
+    P("Or("~objQuery.rep(2, sep=" ")~")").map(xs => Or(xs))
 
   def bigAnd =
-    P("And("~objQuery.rep(2, sep=" ")~")").map(
-      xs => new Named(xs.reduce(_ and _), xs.mkString("And(", " ", ")")))
+    P("And("~objQuery.rep(2, sep=" ")~")").map(xs => And(xs))
 
   def isNot =
-    P("Not("~objQuery~")").map(IsNot)
+    P("Not("~objQuery~")").map(q => Named(IsNot(q), s"Not(${q.toString})"))
 
   def parameterisedObjQuery : P[VertexIdAnalyser] =
     connectedWith | deeply | instanceOfKlass | allocatedAt | constSet | isNot | bigAnd | bigOr
-
-//  def binaryOpObjQuery : P[SpencerAnalyser[RDD[VertexId]]] =
-//    P(objQuery ~ " "~("and"|"or").! ~" " ~ objQuery).map({
-//      case (l, "and", r) => l and r
-//      case (l, "or", r)  => l or r
-//    })
 
   def primitiveObjQuery : P[VertexIdAnalyser] = {
     P(("MutableObj()"
@@ -74,14 +60,14 @@ object QueryParser {
       | "PrimitiveObj()"
       ).!)
       .map {
-        case "MutableObj()" => MutableObj()
-        case "ImmutableObj()" => ImmutableObj()
+        case "MutableObj()"    => MutableObj()
+        case "ImmutableObj()"  => ImmutableObj()
         case "StationaryObj()" => StationaryObj()
-        case "UniqueObj()" => new Named(MaxInDegree(MaxInDegree.Unique), "UniqueObj()", "have at most one active reference at each time")
-        case "HeapUniqueObj()" => new Named(MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP), "HeapUniqueObj()", "have at most one active heap reference at each time")
-        case "TinyObj()" => TinyObj()
-        case "StackBoundObj()" => new Named(MaxInDegree(MaxInDegree.None, InDegreeSpec.HEAP), "StackBoundObj()", "never escape to the heap")
-        case "Obj()" => Obj()
+        case "UniqueObj()"     => MaxInDegree.UniqueObj()
+        case "HeapUniqueObj()" => MaxInDegree.HeapUniqueObj()
+        case "TinyObj()"       => TinyObj()
+        case "StackBoundObj()" => MaxInDegree.StackBoundObj()
+        case "Obj()"           => Obj()
       }
       .map(_.snapshotted())
   }
@@ -89,7 +75,7 @@ object QueryParser {
   def parseObjQuery(txt: String): Either[String, VertexIdAnalyser] = {
     val res: Parsed[VertexIdAnalyser, Char, String] = objQuery.parse(txt.replace("%20", " "))
     res match {
-      case Parsed.Success(value, _) => Right(SnapshottedVertexIdAnalyser(value))
+      case Parsed.Success(value, _) => Right(value.snapshotted())
       case Parsed.Failure(_, index, extra) =>
         Left("parsing failed :\n"+txt+"\n"+(" "*index)+"^\nrest: "+extra)
     }

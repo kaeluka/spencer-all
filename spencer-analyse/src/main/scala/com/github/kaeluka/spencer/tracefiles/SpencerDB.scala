@@ -484,6 +484,79 @@ class SpencerDB(val keyspace: String) {
           .forall(!_.contains("late initialisation")))
   }
 
+  /**
+    * The instrumentation is limited in what byte code it can generate, due to
+    * semantics of Java bytecode. This limits how constructor calls can be
+    * instrumented. Specifically, constructor and super-constructor calls will
+    * appear sequentially (with the innermost constructor first) in the data,
+    * not nested as they should be.
+    * This method will fix the order to be properly nested for each object.
+    *
+    * The constructor calls for object 12 of class C (which is a subclass of B,
+    * which is a subclass of A) could look like this:
+    *
+    * #10 call(<init>,12) // A constructor
+    * #20 exit(<init>)    // A constructor
+    * #30 call(<init>,12) // B constructor
+    * #40 exit(<init>)    // B constructor
+    * #50 call(<init>,12) // C constructor
+    * #60 exit(<init>)    // C constructor
+    *
+    * Then this method will simply update the start and end times of these calls
+    * to be:
+    *
+    * #10 call(<init>,12) // C constructor
+    * #20 call(<init>,12) // B constructor
+    * #30 call(<init>,12) // A constructor
+    * #40 exit(<init>)    // A constructor
+    * #50 exit(<init>)    // B constructor
+    * #60 exit(<init>)    // C constructor
+    */
+  def sortConstructorCalls(): Unit = {
+    val correctionMap = this.getTable("calls")
+      .filter(call => call.getString("name").equals("<init>"))
+      .groupBy(_.getLong("callee"))
+      .filter(_._2.size >= 2)
+      .map {
+        case (callee, _calls) => {
+          val calls = _calls.toArray
+          val times = calls.flatMap(call => List(
+            call.getLong("start"),
+            call.getLong("end"))).sorted
+          calls.sortBy(call => -1 * call.getLong("start"))
+          (callee, calls.zipWithIndex.map {
+            case (call, idx) =>
+              (
+                call,
+                (call.getLong("start"), call.getLong("end")) -> (times(idx), times(times.length - idx - 1)))
+          })
+        }
+      }.sortBy(x => x._1)
+      .collect()
+
+    correctionMap.foreach {
+      case (callee, corrections) =>
+        println(s"correcting $callee")
+        corrections.foreach {
+          case (call, ((origStart, origEnd), (newStart, newEnd))) =>
+            session.execute(s"DELETE FROM ${session.getLoggedKeyspace}.calls " +
+              s"WHERE caller = ${call.getLong("caller")} AND callee = $callee AND start = $origStart AND end = $origEnd ;")
+            insertCall(
+              //FIXME: the caller must be THIS, except for the first call
+              caller = call.getLong("caller"),
+              callee = callee,
+              name   = "<init>",
+              start  = newStart,
+              end    = newEnd,
+              thread = call.getString("thread"),
+              callSiteFile = call.getString("callsitefile"),
+              callSiteLine = call.getLong("callsiteline"),
+              comment = call.getString("comment")
+            )
+        }
+    }
+  }
+
   def computeEdgeEnds(): Unit = {
     val groupedAssignments = this.getTable("refs")
       .where("kind = 'field'")
@@ -636,6 +709,7 @@ class SpencerDB(val keyspace: String) {
       i += 1
     }
     println("loading "+(i-1)+" events took "+stopwatch.stop())
+    sortConstructorCalls()
     computeEdgeEnds()
     computeLastObjUsages()
     generatePerClassObjectsTable()
@@ -668,16 +742,16 @@ class SpencerDB(val keyspace: String) {
     val session = cluster.connect()
     session.execute("DROP KEYSPACE IF EXISTS " + keyspace + ";")
     session.execute(
-      "CREATE KEYSPACE " + keyspace+ " WITH replication = {"
+      s"CREATE KEYSPACE $keyspace WITH replication = {"
         + " 'class': 'SimpleStrategy',"
         + " 'replication_factor': '1'"
         + "};")
 
-    session.execute("CREATE TABLE "+keyspace+".snapshots(query text, result blob, PRIMARY KEY(query));")
+    session.execute(s"CREATE TABLE $keyspace.snapshots(query text, result blob, PRIMARY KEY(query));")
 
-    session.execute("CREATE TABLE "+keyspace+".classdumps(classname text, bytecode blob, PRIMARY KEY(classname));")
+    session.execute(s"CREATE TABLE $keyspace.classdumps(classname text, bytecode blob, PRIMARY KEY(classname));")
 
-    session.execute("CREATE TABLE "+keyspace+".objects(" +
+    session.execute(s"CREATE TABLE $keyspace.objects(" +
       "id bigint, " +
       "klass text, " +
       "allocationsitefile text, " +
@@ -689,10 +763,10 @@ class SpencerDB(val keyspace: String) {
       "PRIMARY KEY(id)) " +
       "WITH COMPRESSION = {};")
 
-    session.execute(s"CREATE INDEX on ${keyspace}.objects(allocationsiteline);")
-    session.execute(s"CREATE INDEX on ${keyspace}.objects(allocationsitefile);")
+    session.execute(s"CREATE INDEX on $keyspace.objects(allocationsiteline);")
+    session.execute(s"CREATE INDEX on $keyspace.objects(allocationsitefile);")
 
-    session.execute("CREATE TABLE "+keyspace+".objects_per_class(" +
+    session.execute(s"CREATE TABLE $keyspace.objects_per_class(" +
       "id bigint, " +
       "klass text, " +
       "allocationsitefile text, " +
@@ -705,7 +779,7 @@ class SpencerDB(val keyspace: String) {
       "PRIMARY KEY(klass, id, firstUsage, lastUsage)) " +
       "WITH COMPRESSION = {};")
 
-    session.execute(s"CREATE TABLE ${keyspace}.refs(" +
+    session.execute(s"CREATE TABLE $keyspace.refs(" +
       "caller bigint, callee bigint, " +
       "kind text, "+
       "name text, "+
@@ -716,9 +790,9 @@ class SpencerDB(val keyspace: String) {
       "WITH COMPRESSION = {};")
 
     // allows to select efficiently using WHERE kind = 'var' in computeEdgeEnds
-    session.execute(s"CREATE INDEX ON ${keyspace}.refs (KIND);")
+    session.execute(s"CREATE INDEX ON $keyspace.refs (KIND);")
 
-    session.execute(s"CREATE TABLE ${keyspace}.calls(" +
+    session.execute(s"CREATE TABLE $keyspace.calls(" +
       "caller bigint, callee bigint, " +
       "name text, " +
       "start bigint, end bigint, " +

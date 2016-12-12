@@ -4,8 +4,6 @@ import java.io._
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 
-import com.datastax.spark.connector.CassandraRow
-import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
 import com.github.kaeluka.spencer.tracefiles.SpencerDB
 import com.google.common.base.Stopwatch
 import org.apache.spark.graphx.{Graph, VertexId}
@@ -22,8 +20,6 @@ trait SpencerAnalyser[T] {
   def explanation(): String
 }
 
-
-
 object SpencerAnalyserUtil {
   def rddToString[T](rdd: RDD[T]) : String = {
     val count = rdd.count()
@@ -36,19 +32,6 @@ object SpencerAnalyserUtil {
     }
   }
 }
-
-/*
-case class Klass() extends SpencerAnalyser[RDD[String]] {
-  override def analyse(implicit g: SpencerData): RDD[String] = {
-    g.db.getTable("objects")
-      .select("klass")
-      .map(_.getStringOption("klass")).filter(_.nonEmpty).map(_.get)
-      .distinct()
-  }
-
-  override def pretty(result: RDD[String]): String = result.collect().mkString(this.toString+":\n\t { ", ", ", " }")
-}
-*/
 
 case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
   override def analyse(implicit g: SpencerData): RDD[T] = {
@@ -88,42 +71,6 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
   override def explanation(): String = inner.explanation()
 }
 
-/*
-case class RddAnalyser[T](inner: SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
-  override def analyse(implicit g: SpencerData): RDD[T] = inner.analyse
-  override def pretty(result: RDD[T]): String = inner.pretty(result)
-
-  def groupBy[U:ClassTag](f: T => U): SpencerAnalyser[RDD[(U, Iterable[T])]] = {
-    new SpencerAnalyser[RDD[(U, Iterable[T])]] {
-      override def pretty(result: RDD[(U, Iterable[T])]): String = {
-        result
-          .map({case (u, t) => u+"\t->\t"+t})
-          .collect()
-          .mkString(
-            "grouped:\n\t[ "
-            , ", "
-            , "] ")
-      }
-
-      override def analyse(implicit g: SpencerData): RDD[(U, Iterable[T])] = {
-        inner.analyse.groupBy(f)
-      }
-    }
-  }
-}
-*/
-
-//object TableAnalyserImplicits {
-//  implicit def toTableAnalyser[T,U](x: SpencerAnalyser[(T,U)]) : SpencerTableAnalyser = {
-//    null
-//  }
-//
-//abstract class SpencerTableAnalyser {
-//  def within[T](population: SpencerAnalyser[RDD[T]]): SpencerAnalyser[Double] = {
-//    null
-//  }
-//}
-
 case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
   override def analyse(implicit g: SpencerData): Option[String] = {
     val result =
@@ -149,25 +96,6 @@ case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
   override def explanation(): String = "shows the source code of a class"
 }
 
-/*
-case class ProportionIn[T](smaller: SpencerAnalyser[RDD[T]], larger: SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[(RDD[T], RDD[T])] {
-
-  override def analyse(implicit g: SpencerData): (RDD[T], RDD[T]) = {
-    (smaller.analyse(g), larger.analyse(g))
-  }
-
-  override def pretty(result: (RDD[T], RDD[T])): String = {
-    result match {
-      case (resSmall, resLarge) =>
-        val smallCount: Long = resSmall.count()
-        val largeCount: Long = resLarge.count()
-        val prop = smallCount*100.0/largeCount
-        prop+"%, or "+smallCount+"/"+largeCount+" of "+this.larger+" are "+smaller
-    }
-  }
-}
-*/
-
 case class Timed[T](inner: SpencerAnalyser[T]) extends SpencerAnalyser[T] {
   private val duration : Stopwatch = Stopwatch.createUnstarted()
 
@@ -191,16 +119,6 @@ case class Timed[T](inner: SpencerAnalyser[T]) extends SpencerAnalyser[T] {
 
   override def explanation(): String = inner.explanation()
 }
-
-/*
-case class Count[T <: SpencerAnalyser[RDD[Any]]](inner: T) extends SpencerAnalyser[Long] {
-  override def analyse(implicit g: SpencerData): Long = {
-    inner.analyse.count()
-  }
-
-  override def pretty(result: Long): String = this.toString+": "+result
-}
-*/
 
 case class LifeTime(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(VertexId, (Long, Long))]] {
 
@@ -235,16 +153,6 @@ case class ObjsByClass() extends SpencerAnalyser[RDD[(String, Iterable[VertexId]
   override def explanation(): String = "grouped by allocation site"
 }
 
-/*
-case class Mapped[T, U](inner: SpencerAnalyser[T], f: T => U) extends SpencerAnalyser[U] {
-  override def analyse(implicit g: SpencerData): U = {
-    f(inner.analyse)
-  }
-
-  override def pretty(result: U): String = this.toString+": "+result
-}
-*/
-
 case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[Array[T]] {
   override def analyse(implicit g: SpencerData): Array[T] = {
     inner.analyse.collect()
@@ -256,74 +164,6 @@ case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[A
 
   override def explanation(): String = inner.explanation()
 }
-
-// Tabulate[String, AllClasses, Nothing, InstanceOfClass] = Tabulate(AllClasses(), InstanceOfClass)
-// I String
-// J Ana[RDD[String]]
-// U Long
-// V Ana[RDD[VertexId]]
-// f String => Instance
-//case class TabulateRDD[I, J <: SpencerAnalyser[RDD[I]], K]
-//(inner : J, f: I => SpencerAnalyser[RDD[K]]) extends SpencerAnalyser[Array[(I, RDD[K])]] {
-//  override def analyse(implicit g: SpencerData): Array[(I, RDD[K])] = {
-//    val innerRet: Array[I] = inner.analyse(g).collect()
-//    innerRet.map(x => (x, f(x).analyse))
-//  }
-//
-//  override def pretty(result: Array[(I,RDD[K])]): String = {
-//    val collected = result.map({case (i, k) => (i, k.collect())})
-//    val sorted = if (collected.length < 1000) collected.sortBy(_._2.length * -1) else collected
-//    sorted
-//      .map({case (i, k) =>
-//        k.mkString(i+"\t->\t [ ", ", ", " ]")
-//      }).mkString("\n")
-//  }
-//
-//  override def explanation(): String = "TabulateRDD"
-//}
-
-/*
-case class Tabulate[I, J <: SpencerAnalyser[RDD[I]], K]
-(inner : J, f: I => SpencerAnalyser[K]) extends SpencerAnalyser[RDD[(I, K)]] {
-  override def analyse(implicit g: SpencerData): RDD[(I, K)] = {
-    g.db.sc.parallelize(inner.analyse(g).collect().map(x => (x, f(x).analyse)))
-  }
-
-  override def pretty(result: RDD[(I,K)]): String = {
-    result.collect()
-      .map({case (i, k) =>
-        i+"\t->\t"+k.toString
-      }).mkString("\n")
-  }
-}
-*/
-
-/*
-case class ClassProperty(prop: SpencerAnalyser[RDD[VertexId]]) extends SpencerAnalyser[RDD[String]] {
-  override def analyse(implicit g: SpencerData): RDD[String] = {
-    val propObjs = prop.analyse.collect().toSet
-    val classVsObjs = g.db.getTable("objects")
-      .groupBy(_.getStringOption("klass"))
-      .filter(_._1.nonEmpty)
-      .map({case (someKlass, objs) => (someKlass.get, objs)})
-    classVsObjs.filter({
-      case (klass, objs) =>
-        val objsSet: Set[Long] = objs.flatMap(_.getLongOption("id")).toSet
-        objsSet.subsetOf(propObjs)
-    }).map(_._1)
-
-  }
-
-  override def pretty(result: RDD[String]): String = {
-    this.toString+":\n\t"+SpencerAnalyserUtil.rddToString(result)
-  }
-}
-
-object DeeplyImmutableClass {
-  def apply() : SpencerAnalyser[RDD[String]] =
-    ClassProperty(Deeply(ImmutableObj()))
-}
-*/
 
 case class GroupByClass(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(Option[String], Iterable[VertexId])]] {
   override def analyse(implicit g: SpencerData): RDD[(Option[String], Iterable[VertexId])] = {

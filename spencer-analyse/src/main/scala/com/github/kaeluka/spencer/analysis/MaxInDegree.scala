@@ -24,6 +24,18 @@ object MaxInDegree {
   val Unique : Function[Int, Boolean] = NamedFunc(_ == 1, "Unique")
   val None : Function[Int, Boolean] = NamedFunc(_ == 0,   "None")
 
+  def UniqueObj() : VertexIdAnalyser = {
+    MaxInDegree(Unique, "HeapUniqueObj()", InDegreeSpec.HEAP_OR_STACK)
+  }
+
+  def HeapUniqueObj() : VertexIdAnalyser = {
+    MaxInDegree(Unique, "HeapUniqueObj()", InDegreeSpec.HEAP)
+  }
+
+  def StackBoundObj() : VertexIdAnalyser = {
+    MaxInDegree(None, "StackBoundObj()", InDegreeSpec.HEAP)
+  }
+
   def highestOverlap(edges : Seq[(Option[Long], Option[Long])]) : Int = {
 //    println(edges.mkString(", "))
     var maxT : Long = 0
@@ -131,25 +143,23 @@ case class InDegreeMap(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalys
   override def explanation(): String = "a map of in-degrees of objects, per time"
 }
 
-case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) extends VertexIdAnalyser {
+case class MaxInDegree(p: Int => Boolean, name: String, spec: InDegreeSpec = HEAP_OR_STACK) extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerData) : RDD[Long] = {
-    val subgraph =
-      spec match {
-        case HEAP => g.graph.subgraph(epred = _.attr.kind == EdgeKind.FIELDSTORE)
-        case STACK => g.graph.subgraph(epred = _.attr.kind == EdgeKind.VARSTORE)
-        case HEAP_OR_STACK => g.graph
-      }
+    val refs_ : CassandraTableScanRDD[CassandraRow] = g.db.getTable("refs")
 
-    val refs: CassandraTableScanRDD[CassandraRow] = g.db.getTable("refs")
-
-    (spec match {
-        //fixme: these should be WHERE clauses:
-      case HEAP => refs.filter(_.getString("kind") == "field")
-      case STACK => refs.filter(_.getString("kind") == "var")
-      case HEAP_OR_STACK => refs
-    }).map(row => (row.getLong("callee").asInstanceOf[VertexId], row.getLongOption("start"), row.getLongOption("end")))
+    val refs = (spec match {
+      //fixme: these should be WHERE clauses:
+      case HEAP => refs_.filter(_.getString("kind") == "field")
+      case STACK => refs_.filter(_.getString("kind") == "var")
+      case HEAP_OR_STACK => refs_
+    })
+      .map(row => (row.getLong("callee").asInstanceOf[VertexId], row.getLongOption("start"), row.getLongOption("end")))
       .groupBy(_._1)
+
+    val testedObjs = refs.map(_._1)
+
+    val passedObjs = refs
       .map({ case (callee, edgesIter) => (callee, edgesIter.map(x => (x._2, x._3)).toSeq.sortBy(_._1)) })
       .flatMap({ case (callee, edges) =>
         if (p(MaxInDegree.highestOverlap(edges))) {
@@ -157,7 +167,14 @@ case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) ex
         } else {
           None
         }
-      })
+      }).filter(_ > 4)
+    if (p(0)) {
+      //the objects that were not in refs are those that have no references
+      // pointing to them at all.. if p(0), we need to include them
+      (passedObjs ++ (Obj().analyse.subtract(testedObjs)))
+    } else {
+      passedObjs
+    }
   }
 
   override def pretty(result: RDD[VertexId]): String = {
@@ -165,14 +182,7 @@ case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) ex
       result.collect().mkString(", ")
   }
 
-  override def toString: String = {
-    if (p.toString().startsWith("<"))
-      "InDegree(..., "+spec.toString+")"
-    else {
-      p.toString()+"()"
-//      (p.toString()+" from "+spec.toString).replace(" ", "_")
-    }
-  }
+  override def toString: String = this.name
 
   override def explanation(): String = "the maximum in degree per object"
 }
@@ -181,4 +191,3 @@ case class MaxInDegree(p: Int => Boolean, spec: InDegreeSpec = HEAP_OR_STACK) ex
 //  }
 //}
 
-object RunUnique extends MaxInDegree(_ == 1) {}

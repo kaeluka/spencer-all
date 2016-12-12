@@ -1553,8 +1553,9 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
   g_init = true;
 
   {
-    // tag objects that have gotten a tag due to use of getOrDoTag
     /*
+    // tag objects that have gotten a tag due to use of getOrDoTag
+    //FIXME: this will not get objects that were, for instance, allocated during native code
     for (auto it = irregularlyTagged.begin(); it != irregularlyTagged.end(); ++it) {
       auto typ = getTypeForTag(jni, *it);
       DBG("actual type for obj #"<<*it<<" is "<< typ);
@@ -1596,7 +1597,6 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
         }
 
       }
-
     }
     */
   }
