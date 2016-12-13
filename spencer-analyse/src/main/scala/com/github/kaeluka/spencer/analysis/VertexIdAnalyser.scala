@@ -385,7 +385,11 @@ case class ConnectedWith(roots: VertexIdAnalyser
 
 case class TinyObj() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerData): RDD[VertexId] = {
-    val withRefTypeFields = g.graph.triplets.filter(_.attr.kind == EdgeKind.FIELD).map(_.srcId).distinct()
+    val withRefTypeFields = g.db.getTable("refs")
+      .where("kind = 'field'")
+      .select("caller")
+      .map(_.getLong("caller"))
+      .distinct()
     Obj().analyse.subtract(withRefTypeFields)
   }
 
