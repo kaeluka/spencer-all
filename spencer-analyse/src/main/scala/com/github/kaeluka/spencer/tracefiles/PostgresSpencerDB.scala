@@ -44,6 +44,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   var insertUseStatement : java.sql.PreparedStatement = _
+  var insertUseBatchSize = 0;
   var insertEdgeStatement : java.sql.PreparedStatement = _
   var insertEdgeOpenStatement : java.sql.PreparedStatement = _
   var finishEdgeStatement : java.sql.PreparedStatement = _
@@ -325,7 +326,15 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertUseStatement.setLong  (6, idx)
     this.insertUseStatement.setString(7, thread)
     this.insertUseStatement.setString(8, if (saveOrigin) comment else "")
-    this.insertUseStatement.execute()
+    this.insertUseStatement.addBatch()
+    this.insertUseBatchSize+=1
+    if (insertUseBatchSize > 10000) {
+      println("executing batch")
+      this.insertUseStatement.executeBatch()
+      println("executing batch: done")
+      this.insertUseStatement.clearBatch()
+      this.insertUseBatchSize = 0
+    }
   }
 
   override def getCachedOrDo(name: String, f: () => DataFrame): DataFrame = {
@@ -740,6 +749,10 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       i += 1
     }
     println("loading "+(i-1)+" events took "+stopwatch.stop())
+
+    if (this.insertUseBatchSize > 0) {
+      this.insertUseStatement.executeBatch()
+    }
     sortConstructorCalls()
     computeEdgeEnds()
     computeLastObjUsages()
@@ -779,6 +792,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       this.conn.close()
     }
     this.conn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
+    this.conn.setAutoCommit(false)
   }
 
   def createFreshTables(dbname: String) {
@@ -846,6 +860,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  bytecode bytea,
         |  PRIMARY KEY(classname))
       """.stripMargin)
+    this.conn.commit()
   }
 
   def initPreparedStatements(keyspace: String): Unit = {
