@@ -634,7 +634,9 @@ jlong getClassRepTag(JNIEnv *jni, const std::string &className) {
   }
 
   if (klassReps.find(className) == klassReps.end()) {
-    WARN("can't find class rep tag for "<<className);
+    long tag = -1 * nextObjID.fetch_add(1);
+    WARN("can't find class rep tag for "<<className<<", synthesizing "<<tag);
+    klassReps.insert({ { className, tag } });
   }
   return klassReps[className];
 }
@@ -1326,6 +1328,7 @@ ClassFileLoadHook(jvmtiEnv *jvmti_env, JNIEnv *jni,
     name = "";
   }
   DBG("ClassFileLoadHook: '" << name << "'");
+  DBG("inserting "<<name);
   klassReps.insert({{name, (-1)*nextObjID.fetch_add(1)}});
 
   if (name == "java/lang/invoke/LambdaForm") {
