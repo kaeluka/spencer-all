@@ -1,22 +1,22 @@
 package com.github.kaeluka.spencer.analysis
 import com.datastax.spark.connector.CassandraRow
 import com.datastax.spark.connector.rdd.CassandraTableScanRDD
-import com.github.kaeluka.spencer.tracefiles.SpencerDB
+import com.github.kaeluka.spencer.tracefiles.CassandraSpencerDB
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.graphx._
 
 
 object SpencerGraphImplicits {
-  implicit def spencerDbToSpencerGraph(db: SpencerDB) : SpencerData = {
+  implicit def spencerDbToSpencerGraph(db: CassandraSpencerDB) : SpencerData = {
     new SpencerData(db)
   }
 
-  implicit def spencerDbToFilteredGraph(db: SpencerDB): FilteredGraph = {
+  implicit def spencerDbToFilteredGraph(db: CassandraSpencerDB): FilteredGraph = {
     new FilteredGraph(spencerDbToSpencerGraph(db).graph)
   }
 
-  implicit def spencerDbToGraph(db: SpencerDB): Graph[ObjDesc, EdgeDesc] = {
+  implicit def spencerDbToGraph(db: CassandraSpencerDB): Graph[ObjDesc, EdgeDesc] = {
     spencerDbToSpencerGraph(db).graph
   }
 
@@ -29,7 +29,7 @@ object SpencerGraphImplicits {
   }
 }
 
-class SpencerData(val db: SpencerDB) {
+@deprecated class SpencerData(val db: CassandraSpencerDB) {
 
   private def initGraph: Graph[ObjDesc, EdgeDesc] = {
     val objs = this.db.getTable("objects")

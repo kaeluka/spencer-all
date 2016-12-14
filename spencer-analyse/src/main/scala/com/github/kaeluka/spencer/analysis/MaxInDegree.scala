@@ -68,16 +68,17 @@ object MaxInDegree {
 case class InRefsHistory(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalyser[RDD[(VertexId, Seq[(Long, Array[VertexId])])]] {
   case class InRef(callee: Long, start: Long, end: Option[Long], holder: VertexId)
 
-  override def analyse(implicit g: SpencerData): RDD[(VertexId, Seq[(Long, Array[VertexId])])] = {
-    val refs = spec match {
-      case HEAP => g.db.getTable("refs").filter(_.getString("kind") == "field")
-      case STACK => g.db.getTable("refs").filter(_.getString("kind") == "var")
-      case HEAP_OR_STACK => g.db.getTable("refs")
-    }
+  override def analyse(implicit g: SpencerDB): RDD[(VertexId, Seq[(Long, Array[VertexId])])] = {
+    import g.sqlContext.implicits._
+    val refs = (spec match {
+      case HEAP => g.selectFrame("refs", "SELECT callee, start, end, caller FROM refs WHERE kind = 'field'")
+      case STACK => g.selectFrame("refs", "SELECT callee, start, end, caller FROM refs WHERE kind = 'var'")
+      case HEAP_OR_STACK => g.selectFrame("refs", "SELECT callee, start, end, caller FROM refs")
+    }).as[(Long, Long, Long, Long)].rdd
 
+    //FIXME dataframe ops might be much better at grouping
     val res = refs
-      .map(row => InRef(callee = row.getLong("callee"), start = row.getLong("start"), end = row.getLongOption("end"), holder = row.getLong("caller").asInstanceOf[VertexId]))
-      .filter(_.callee == 28740)
+      .map(row => InRef(callee = row._1, start = row._2, end = Some(row._3), holder = row._4))
       .groupBy(_.callee)
       .map {
         case (callee, edges) =>
@@ -112,15 +113,19 @@ case class InRefsHistory(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnal
 }
 
 case class InDegreeMap(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalyser[RDD[(VertexId, Seq[(Long, Int)])]] {
-  override def analyse(implicit g: SpencerData): RDD[(VertexId, Seq[(VertexId, Int)])] = {
-    val refs = spec match {
-      case HEAP => g.db.getTable("refs").filter(_.getString("kind") == "field")
-      case STACK => g.db.getTable("refs").filter(_.getString("kind") == "var")
-      case HEAP_OR_STACK => g.db.getTable("refs")
-    }
+  override def analyse(implicit g: SpencerDB): RDD[(VertexId, Seq[(VertexId, Int)])] = {
+    import g.sqlContext.implicits._
+    val refs = (spec match {
+//      case HEAP => g.db.getTable("refs").filter(_.getString("kind") == "field")
+//      case STACK => g.db.getTable("refs").filter(_.getString("kind") == "var")
+//      case HEAP_OR_STACK => g.db.getTable("refs")
+      case HEAP => g.selectFrame("refs", "SELECT callee, start, end FROM refs WHERE kind = 'field'")
+      case STACK => g.selectFrame("refs", "SELECT callee, start, end FROM refs WHERE kind = 'var'")
+      case HEAP_OR_STACK => g.selectFrame("refs", "SELECT callee, start, end FROM refs")
+    }).as[(Long, Long, Option[Long])].rdd
 
     val res = refs
-      .map(row => (row.getLong("callee").asInstanceOf[VertexId], row.getLong("start"), row.getLongOption("end")))
+      .map(row => (row._1.asInstanceOf[VertexId], row._2, row._3))
       .groupBy(_._1)
       .map({
         case (callee, edges) => {
@@ -145,16 +150,15 @@ case class InDegreeMap(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalys
 
 case class MaxInDegree(p: Int => Boolean, name: String, spec: InDegreeSpec = HEAP_OR_STACK) extends VertexIdAnalyser {
 
-  override def analyse(implicit g: SpencerData) : RDD[Long] = {
-    val refs_ : CassandraTableScanRDD[CassandraRow] = g.db.getTable("refs")
-
+  override def analyse(implicit g: SpencerDB) : RDD[Long] = {
+    import g.sqlContext.implicits._
+    //FIXME get rid of RDDs here
     val refs = (spec match {
-      //fixme: these should be WHERE clauses:
-      case HEAP => refs_.filter(_.getString("kind") == "field")
-      case STACK => refs_.filter(_.getString("kind") == "var")
-      case HEAP_OR_STACK => refs_
-    })
-      .map(row => (row.getLong("callee").asInstanceOf[VertexId], row.getLongOption("start"), row.getLongOption("end")))
+      case HEAP          => g.selectFrame("refs", "SELECT callee, start, end FROM refs WHERE kind = 'field'")
+      case STACK         => g.selectFrame("refs", "SELECT callee, start, end FROM refs WHERE kind = 'var'")
+      case HEAP_OR_STACK => g.selectFrame("refs", "SELECT callee, start, end FROM refs")
+    }).as[(Long, Option[Long], Option[Long])].rdd
+      .map(row => (row._1.asInstanceOf[VertexId], row._2, row._3))
       .groupBy(_._1)
 
     val testedObjs = refs.map(_._1)

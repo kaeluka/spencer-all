@@ -2,7 +2,7 @@ package com.github.kaeluka.spencer
 
 import java.nio.file.Paths
 
-import com.github.kaeluka.spencer.tracefiles.SpencerDB
+import com.github.kaeluka.spencer.tracefiles.CassandraSpencerDB
 
 object SpencerLoad {
 
@@ -37,10 +37,10 @@ object SpencerLoad {
       .find(_.startsWith("bytecode-dir="))
       .map(_.replace("bytecode-dir=", ""))
 
-    println("spencer cassandra loader starting...")
+    println("spencer loader starting...")
     println("loading "+path+" as '"+name+"'")
 
-    val db = new SpencerDB(name)
+    val db = new PostgresSpencerDB(name)
     db.loadFrom(path, Paths.get(oBytecodeDir.getOrElse(Paths.get(path).getParent.toString+"/log/")))
     println("done")
     sys.exit(0)

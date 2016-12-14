@@ -1,10 +1,9 @@
 package com.github.kaeluka.spencer.analysis
 
 import java.io._
-import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 
-import com.github.kaeluka.spencer.tracefiles.SpencerDB
+import com.github.kaeluka.spencer.tracefiles.CassandraSpencerDB
 import com.google.common.base.Stopwatch
 import org.apache.spark.graphx.{Graph, VertexId}
 import org.apache.spark.rdd.RDD
@@ -12,10 +11,9 @@ import org.objectweb.asm.ClassReader
 import org.objectweb.asm.util.TraceClassVisitor
 
 import scala.language.implicitConversions
-import scala.reflect.{ClassTag, _}
 
 trait SpencerAnalyser[T] {
-  def analyse(implicit g: SpencerData) : T
+  def analyse(implicit g: SpencerDB) : T
   def pretty(result: T): String
   def explanation(): String
 }
@@ -33,8 +31,9 @@ object SpencerAnalyserUtil {
   }
 }
 
+/*
 case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
-  override def analyse(implicit g: SpencerData): RDD[T] = {
+  override def analyse(implicit g: SpencerDB): RDD[T] = {
     if (inner.isInstanceOf[Snapshotted[_]]) {
       inner.analyse
     } else {
@@ -57,7 +56,7 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
         val resultSerialised = snapshots.first().getBytes("result")
         println(s"snapshot for query $queryString: reading ${resultSerialised.array().length} bytes")
         val ois: ObjectInputStream = new ObjectInputStream(new ByteArrayInputStream(resultSerialised.array()))
-        val res = SpencerDB.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
+        val res = CassandraSpencerDB.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
         println(s"deserialising took $watch")
         res
       }
@@ -70,18 +69,18 @@ case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends Spe
 
   override def explanation(): String = inner.explanation()
 }
+*/
 
 case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
-  override def analyse(implicit g: SpencerData): Option[String] = {
+  override def analyse(implicit g: SpencerDB): Option[String] = {
+    import g.sqlContext.implicits._
     val result =
-      g.db.getTable("classdumps").where("classname = ?", klass).select("bytecode").collect()
-    assert(result.length <= 1)
-    if (result.length == 0) {
+      g.selectFrame("classdumps", s"SELECT bytecode FROM classdumps WHERE classname = $klass").as[Array[Byte]].rdd
+    assert(result.count() <= 1)
+    if (result.count() == 0) {
       None
     } else {
-      val bytecodeBuffer = result(0).getBytes("bytecode")
-      val bytecode = new Array[Byte](bytecodeBuffer.remaining())
-      bytecodeBuffer.get(bytecode)
+      val bytecode = result.first()
 
       val classreader = new ClassReader(bytecode)
       val baos = new ByteArrayOutputStream()
@@ -99,7 +98,7 @@ case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
 case class Timed[T](inner: SpencerAnalyser[T]) extends SpencerAnalyser[T] {
   private val duration : Stopwatch = Stopwatch.createUnstarted()
 
-  override def analyse(implicit g: SpencerData): T = {
+  override def analyse(implicit g: SpencerDB): T = {
     duration.start()
     val ret = inner.analyse(g)
     duration.stop()
@@ -122,12 +121,17 @@ case class Timed[T](inner: SpencerAnalyser[T]) extends SpencerAnalyser[T] {
 
 case class LifeTime(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(VertexId, (Long, Long))]] {
 
-  override def analyse(implicit g: SpencerData): RDD[(VertexId, (Long, Long))] = {
+  override def analyse(implicit g: SpencerDB): RDD[(VertexId, (Long, Long))] = {
+    import g.sqlContext.implicits._
     //FIXME: uses collect
-    g.db.getTable("objects")
-        .select("id", "firstusage", "lastusage")
-        .where("id IN ?", inner.analyse.collect().toList)
-        .map(row => (row.getLong("id"), (row.getLong("firstusage"), row.getLong("lastusage"))))
+    val innerRes = inner.analyse.toDF("id")
+    g.selectFrame("objects", "SELECT id, firstusage, lastusage FROM objects")
+      .where($"id" isin innerRes).as[(Long, (Long, Long))].rdd
+//    g.db.getTable("objects")
+//        .select("id", "firstusage", "lastusage")
+//        .where("id IN ?", inner.analyse.collect().toList)
+//        .map(row => (row.getLong("id"), (row.getLong("firstusage"), row.getLong("lastusage"))))
+
   }
 
   override def pretty(result: RDD[(VertexId, (Long, Long))]): String = {
@@ -137,8 +141,9 @@ case class LifeTime(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(Vertex
   override def explanation(): String = "shows the first and last times objects were used"
 }
 
+/*
 case class ObjsByClass() extends SpencerAnalyser[RDD[(String, Iterable[VertexId])]] {
-  override def analyse(implicit g: SpencerData): RDD[(String, Iterable[VertexId])] = {
+  override def analyse(implicit g: SpencerDB): RDD[(String, Iterable[VertexId])] = {
     g.db.getTable("objects")
       .groupBy(_.getStringOption("klass"))
       .filter(_._1.isDefined)
@@ -152,9 +157,10 @@ case class ObjsByClass() extends SpencerAnalyser[RDD[(String, Iterable[VertexId]
 
   override def explanation(): String = "grouped by allocation site"
 }
+*/
 
 case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[Array[T]] {
-  override def analyse(implicit g: SpencerData): Array[T] = {
+  override def analyse(implicit g: SpencerDB): Array[T] = {
     inner.analyse.collect()
   }
 
@@ -165,8 +171,9 @@ case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[A
   override def explanation(): String = inner.explanation()
 }
 
+/*
 case class GroupByClass(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(Option[String], Iterable[VertexId])]] {
-  override def analyse(implicit g: SpencerData): RDD[(Option[String], Iterable[VertexId])] = {
+  override def analyse(implicit g: SpencerDB): RDD[(Option[String], Iterable[VertexId])] = {
     val innerCollected = inner.analyse.collect()
     g.db.getTable("objects")
       .select("klass", "id")
@@ -201,16 +208,18 @@ case class GroupByClass(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(Op
 
   override def explanation(): String = "some objects, grouped by class"
 }
+*/
 
+/*
 case class PerClass[U: ClassTag](f : (Option[String], Iterable[VertexId]) => Option[U]) extends SpencerAnalyser[RDD[U]] {
-  override def analyse(implicit g: SpencerData): RDD[U] = {
+  override def analyse(implicit g: SpencerDB): RDD[U] = {
     val innerObjs: Set[VertexId] = Obj().analyse.collect().toSet[VertexId]
     val grouped: RDD[(Option[String], Iterable[VertexId])] =
       GroupByClass(Obj()).analyse
     if (classTag[U].toString.contains("RDD") /* hack */) {
       grouped.flatMap({case (loc, it) => f(loc, it)})
     } else {
-      SpencerDB.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
+      CassandraSpencerDB.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
     }
   }
 
@@ -220,16 +229,18 @@ case class PerClass[U: ClassTag](f : (Option[String], Iterable[VertexId]) => Opt
 
   override def explanation(): String = "grouped by class, then mapped"
 }
+*/
 
+/*
 case class PerAllocationSite[U: ClassTag](f : ((Option[String], Option[Long]), Iterable[VertexId]) => Option[U]) extends SpencerAnalyser[RDD[U]] {
-  override def analyse(implicit g: SpencerData): RDD[U] = {
+  override def analyse(implicit g: SpencerDB): RDD[U] = {
     val innerObjs: Set[VertexId] = Obj().analyse.collect().toSet[VertexId]
     val grouped: RDD[((Option[String], Option[Long]), Iterable[VertexId])] =
       GroupByAllocationSite(Obj()).analyse
     if (classTag[U].toString.contains("RDD") /* hack */) {
       grouped.flatMap({case (loc, it) => f(loc, it)})
     } else {
-      SpencerDB.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
+      CassandraSpencerDB.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
     }
   }
 
@@ -239,9 +250,11 @@ case class PerAllocationSite[U: ClassTag](f : ((Option[String], Option[Long]), I
 
   override def explanation(): String = "grouped by allocation sites and then mapped"
 }
+*/
 
+/*
 object ProportionPerClass {
-  def apply(inner: VertexIdAnalyser)(implicit g: SpencerData) : SpencerAnalyser[RDD[(Option[String], (Int, Int))]] = {
+  def apply(inner: VertexIdAnalyser)(implicit g: SpencerDB) : SpencerAnalyser[RDD[(Option[String], (Int, Int))]] = {
     val innerSet = inner.analyse.collect().toSet
     PerClass({case (loc, iter) => {
       val instances: Set[VertexId] = iter.toSet
@@ -249,9 +262,11 @@ object ProportionPerClass {
     }})
   }
 }
+*/
 
+/*
 object ProportionPerAllocationSite {
-  def apply(inner: VertexIdAnalyser)(implicit g: SpencerData) : SpencerAnalyser[RDD[((Option[String], Option[Long]), (Int, Int))]] = {
+  def apply(inner: VertexIdAnalyser)(implicit g: SpencerDB) : SpencerAnalyser[RDD[((Option[String], Option[Long]), (Int, Int))]] = {
     val innerSet = inner.analyse.collect().toSet
     PerAllocationSite({case (loc, iter) => {
       val allocSiteObjs: Set[VertexId] = iter.toSet
@@ -259,6 +274,7 @@ object ProportionPerAllocationSite {
     }})
   }
 }
+*/
 
 case class ConnectedComponent(marker: VertexId, members: Array[VertexId]) {
   override def toString(): String = {
@@ -267,8 +283,8 @@ case class ConnectedComponent(marker: VertexId, members: Array[VertexId]) {
 }
 
 case class ConnectedComponents(minSize: Int) extends SpencerAnalyser[RDD[ConnectedComponent]] {
-  def analyse(implicit g: SpencerData): RDD[ConnectedComponent] = {
-    val graph: Graph[ObjDesc, EdgeDesc] = g.graph.cache()
+  def analyse(implicit g: SpencerDB): RDD[ConnectedComponent] = {
+    val graph: Graph[ObjDesc, EdgeDesc] = g.getGraph()
     val components: Graph[VertexId, EdgeDesc] = graph.subgraph(epred = _.attr.kind == EdgeKind.FIELD).connectedComponents()
 
     val compSet = components.vertices
@@ -288,11 +304,10 @@ object Scratch extends App {
   run
 
   def run: Unit = {
-    val db: SpencerDB = new SpencerDB("test")
+    implicit val db: CassandraSpencerDB = new CassandraSpencerDB("test")
     db.connect()
 
     val watch: Stopwatch = Stopwatch.createStarted()
-    implicit val g: SpencerData = SpencerGraphImplicits.spencerDbToSpencerGraph(db)
 
     val query =
 //      InRefsHistory()

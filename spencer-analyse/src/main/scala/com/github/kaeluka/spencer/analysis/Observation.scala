@@ -18,7 +18,7 @@ trait Observation extends SpencerAnalyser[RDD[(VertexId, Double)]] {
 }
 
 case class LifeTimeObs() extends Observation {
-  override def analyse(implicit g: SpencerData): RDD[(VertexId, Double)] = {
+  override def analyse(implicit g: SpencerDB): RDD[(VertexId, Double)] = {
     null
 //    g.db.getTable("objects").select("id", "firstusage", "lastusage").map(row =>
 //      (row.getLong("id"), row.get)

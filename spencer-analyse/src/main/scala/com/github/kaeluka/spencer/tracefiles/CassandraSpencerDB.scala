@@ -11,121 +11,53 @@ import com.datastax.spark.connector.rdd.CassandraTableScanRDD
 import com.datastax.spark.connector.{CassandraRow, _}
 import com.github.kaeluka.spencer.Events
 import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
-import com.github.kaeluka.spencer.analysis.{CallStackAbstraction, Util}
+import com.github.kaeluka.spencer.analysis._
 import com.google.common.base.Stopwatch
 import org.apache.commons.io.FileUtils
-import org.apache.spark.graphx.VertexId
+import org.apache.spark.graphx.{Edge, Graph}
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.apache.spark.{SparkConf, SparkContext}
 
 import scala.collection.JavaConversions._
 
-object AproposEvent {
-  def startTime(aproposEvent: AproposEvent) : Long = {
-    aproposEvent match {
-      case e: AproposUseEvent  => e.start
-      case e: AproposCallEvent => e.start
-      case e: AproposRefEvent  => e.start
-    }
-  }
+object CassandraSpencerDB {
+  val conf = new SparkConf()
+    .setAppName("spencer-analyse")
+    .set("spark.cassandra.connection.host", "127.0.0.1")
+    .set("spark.network.timeout", "1000")
+    .set("spark.executor.heartbeatInterval", "1000")
+    .setMaster("local[8]")
+    //      .set("spark.cassandra.connection.host", "130.238.10.30")
+    //      .setMaster("spark://Stephans-MacBook-Pro.local:7077")
+    //              .set("spark.executor.memory", "4g").set("worker_max_heap", "1g")
 
-  def getThread(aproposEvent: AproposEvent) : String = {
-    aproposEvent match {
-      case e: AproposUseEvent  => e.thread
-      case e: AproposCallEvent => e.thread
-      case e: AproposRefEvent  => e.thread
-    }
-  }
+  val cluster =
+    Cluster.builder()
+      .addContactPoint("127.0.0.1")
+      //        .addContactPoint("130.238.10.30")
+      .build()
+  val sc : SparkContext = new SparkContext(conf)
 
-  def toJSON(aproposEvent: AproposEvent) : String = {
-    val fields = aproposEvent match {
-      case e: AproposUseEvent  => List(
-        "type:   'use'",
-        "callee: "+e.callee,
-        "caller: "+e.caller,
-        "start:  "+e.start,
-        "kind:   '"+e.kind+"'",
-        "name:   '"+e.name+"'",
-        "thread: '"+e.thread+"'",
-        "msg:    '"+e.msg+"'"
-      )
-      case e: AproposCallEvent => List(
-        "type:     'call'",
-        "callee:   "+e.callee,
-        "caller:   "+e.caller,
-        "start:    "+e.start,
-        "end:      "+e.end,
-        "name:     '"+e.name+"'",
-        "callsite: '"+e.callsite+"'",
-        "thread:   '"+e.thread+"'",
-        "msg:      '"+e.msg+"'"
-      )
-      case e: AproposRefEvent  => List(
-        Some("type:   'ref'"),
-        Some("caller: "+e.holder),
-        Some("callee: "+e.referent),
-        Some("start:  "+e.start),
-        Some("name:   '"+e.name+"'"),
-        Some("kind:   '"+e.kind+"'"),
-        e.end.map("end:    "+_),
-        Some("thread: '"+e.thread+"'"),
-        Some("msg:    '"+e.msg+"'")
-      ).filter(_.isDefined).map(_.get)
-    }
-    fields.mkString("{\n", ",\n", "\n}")
-  }
-}
+  @deprecated def initCluster() = { }
 
-sealed trait AproposEvent
-case class AproposUseEvent(caller: VertexId, callee: VertexId, start: Long, kind: String, name: String, thread: String, msg: String) extends AproposEvent
-case class AproposCallEvent(caller: VertexId, callee: VertexId, start: Long, end: Long, name: String, callsite: String, thread: String, msg: String) extends AproposEvent
-case class AproposRefEvent(holder: VertexId, referent: VertexId, start: Long, end: Option[Long], name: String, kind: String, thread: String, msg: String) extends AproposEvent
+  @deprecated def startSpark () { }
 
-case class AproposData(alloc: Option[Map[String, Any]], evts: Seq[AproposEvent], klass : Option[String])
-
-object SpencerDB {
-  var cluster: Cluster = _
-  var sc : SparkContext = _
-
-  def initCluster() = {
-    SpencerDB.cluster =
-      Cluster.builder()
-        .addContactPoint("127.0.0.1")
-        //        .addContactPoint("130.238.10.30")
-        .build()
-  }
-
-  def startSpark () {
-    if (! SpencerDB.isSparkStarted) {
-      val conf = new SparkConf()
-        .setAppName("spencer-analyse")
-        .set("spark.cassandra.connection.host", "127.0.0.1")
-        .set("spark.network.timeout", "1000")
-          .set("spark.executor.heartbeatInterval", "1000")
-        //      .set("spark.cassandra.connection.host", "130.238.10.30")
-        //      .setMaster("spark://Stephans-MacBook-Pro.local:7077")
-//              .set("spark.executor.memory", "4g").set("worker_max_heap", "1g")
-        .setMaster("local[8]")
-
-      SpencerDB.sc = new SparkContext(conf)
-      //    SpencerDB.sc.setCheckpointDir("/Volumes/MyBook/checkpoints")
-    }
-  }
-
-  def isSparkStarted : Boolean = {
-    SpencerDB.sc != null
-  }
+  @deprecated def isSparkStarted : Boolean = { CassandraSpencerDB.sc != null }
 
   def shutdown() = {
     this.cluster.close()
-    SpencerDB.sc.stop()
+    CassandraSpencerDB.sc.stop()
   }
 }
 
-class SpencerDB(val keyspace: String) {
+class CassandraSpencerDB(dbname: String) extends SpencerDB {
+  val sqlContext: SQLContext = new SQLContext(CassandraSpencerDB.sc)
+  sqlContext.setConf("keyspace", dbname)
+
   def shutdown() = {
     this.session.close()
-    SpencerDB.shutdown()
+    CassandraSpencerDB.shutdown()
   }
 
   var insertUseStatement : PreparedStatement = _
@@ -135,10 +67,9 @@ class SpencerDB(val keyspace: String) {
   var insertCallStatement : PreparedStatement = _
   var insertObjectStatement : PreparedStatement = _
   var session : Session = _
-  val saveOrigin = keyspace.equals("test")
+  val saveOrigin = dbname.equals("test")
 
   val stacks: CallStackAbstraction = new CallStackAbstraction()
-
 
   def handleEvent(evt: AnyEvt.Reader, idx: Long) {
     try {
@@ -211,7 +142,7 @@ class SpencerDB(val keyspace: String) {
                   callSiteLine = menter.enter.getCallsiteline,
                   comment      = "")
                 var i = 0
-                var Nvars = variables.length
+                val Nvars = variables.length
                 while (i < Nvars) {
                   if (variables(i) > 0) {
                     assert(returningObjTag != 0, s"returningObj can't be 0! ${EventsUtil.methodExitToString(mexit)}")
@@ -323,7 +254,7 @@ class SpencerDB(val keyspace: String) {
       }
     } catch {
       case e: IllegalStateException =>
-        val exception: IllegalStateException = new IllegalStateException("cause was: "+EventsUtil.messageToString(evt), e)
+        ()
     }
   }
 
@@ -485,10 +416,62 @@ class SpencerDB(val keyspace: String) {
         .sortBy(AproposEvent.startTime).distinct().collect(), klass)
   }
 
-  def getTable(table: String): CassandraTableScanRDD[CassandraRow] = {
-    assert(SpencerDB.sc != null, "need to have spark context")
+  def getFrame(table: String): DataFrame = {
+    assert(CassandraSpencerDB.sc != null, "need to have spark context")
     assert(this.session != null, "need to have db session")
-    SpencerDB.sc.cassandraTable(this.session.getLoggedKeyspace, table)
+    CassandraSpencerDB.sc.cassandraTable(this.session.getLoggedKeyspace, table)
+    this.sqlContext.sql("SELECT * FROM objects")
+  }
+
+  private def initGraph: Graph[ObjDesc, EdgeDesc] = {
+    val objs = this.getTable("objects")
+      .map(row => (row.getLong("id"), ObjDesc(klass = row.getStringOption("klass"))))
+      .setName("object graph vertices")
+
+    //    val uses = this.db.getTable("uses")
+    //      .map(row => {
+    //        val fr = row.getLong("idx")
+    //        val to = fr + 1
+    //        Edge(
+    //          row.getLong("caller"),
+    //          row.getLong("callee"),
+    //          EdgeDesc(Some(fr), Some(to), EdgeKind.fromUsesKind(row.getString("kind")))
+    //        )
+    //      })
+    //      .setName("object graph edges")
+    val refs = this.getTable("refs")
+      .map(row => {
+        val fr = row.getLongOption("start")
+        val to = row.getLongOption("end")
+        Edge(
+          row.getLong("caller"),
+          row.getLong("callee"),
+          EdgeDesc(fr, to, EdgeKind.fromRefsKind(row.getString("kind"))))
+      })
+
+    val g: Graph[ObjDesc, EdgeDesc] =
+      Graph(objs, refs)
+    g.cache()
+    g
+  }
+
+  private lazy val g = initGraph
+
+
+  def getGraph(): Graph[ObjDesc, EdgeDesc] = {
+    this.g
+  }
+
+  override def clearCaches(dbname: Option[String]): Unit = {
+    ???
+  }
+
+  @deprecated
+  def getTable(table: String): CassandraTableScanRDD[CassandraRow] = {
+    assert(CassandraSpencerDB.sc != null, "need to have spark context")
+    assert(this.session != null, "need to have db session")
+    val ret = CassandraSpencerDB.sc.cassandraTable(this.session.getLoggedKeyspace, table)
+    ret
   }
 
   def getProperObjects: RDD[CassandraRow] = {
@@ -602,7 +585,7 @@ class SpencerDB(val keyspace: String) {
   }
 
   def computeLastObjUsages(): Unit = {
-    assert(SpencerDB.isSparkStarted, "spark must be started in computeLastObjUsages")
+    assert(CassandraSpencerDB.isSparkStarted, "spark must be started in computeLastObjUsages")
 
     //the first action involving an object is always its constructor call
     val firstLastCalls = this.getTable("calls")
@@ -699,7 +682,7 @@ class SpencerDB(val keyspace: String) {
     var doneWithHandleInits = false
     val stopwatch: Stopwatch = Stopwatch.createStarted
 
-    this.connect(true)
+    this.connect_(true)
 
     this.loadBytecodeDir(Paths.get(logDir.toString, "input"))
 
@@ -732,34 +715,36 @@ class SpencerDB(val keyspace: String) {
     this.shutdown()
   }
 
-  def connect(overwrite: Boolean = false): Unit = {
+  def connect(): Unit = {
+    this.connect_(false)
+  }
 
-    SpencerDB.initCluster()
+  def connect_(overwrite: Boolean = false): Unit = {
+
+    CassandraSpencerDB.initCluster()
     if (overwrite) {
-      initKeyspace(this.keyspace)
+      initKeyspace(this.dbname)
     }
 
-    initPreparedStatements(this.keyspace)
+    initPreparedStatements(this.dbname)
 
-    connectToKeyspace(this.keyspace)
+    connectToKeyspace(this.dbname)
 
-    SpencerDB.startSpark()
+    CassandraSpencerDB.startSpark()
   }
 
   def connectToKeyspace(keyspace: String): Unit = {
-    this.session = SpencerDB.cluster.connect(keyspace)
+    this.session = CassandraSpencerDB.cluster.connect(keyspace)
   }
 
   def initKeyspace(keyspace: String) {
-    val session = SpencerDB.cluster.connect()
+    val session = CassandraSpencerDB.cluster.connect()
     session.execute("DROP KEYSPACE IF EXISTS " + keyspace + ";")
     session.execute(
       s"CREATE KEYSPACE $keyspace WITH replication = {"
         + " 'class': 'SimpleStrategy',"
         + " 'replication_factor': '1'"
         + "};")
-
-    session.execute(s"CREATE TABLE $keyspace.snapshots(query text, result blob, PRIMARY KEY(query));")
 
     session.execute(s"CREATE TABLE $keyspace.classdumps(classname text, bytecode blob, PRIMARY KEY(classname));")
 
@@ -773,7 +758,7 @@ class SpencerDB(val keyspace: String) {
       "thread text, " +
       "comment text, " +
       "PRIMARY KEY(id)) " +
-      "WITH COMPRESSION = {};")
+      "WITH COMPRESSION = { 'sstable_compression': 'LZ4Compressor' };")
 
     session.execute(s"CREATE INDEX on $keyspace.objects(allocationsiteline);")
     session.execute(s"CREATE INDEX on $keyspace.objects(allocationsitefile);")
@@ -789,7 +774,7 @@ class SpencerDB(val keyspace: String) {
       "comment text, " +
       // this table supports range queries on id, firstUsage, lastUsage:
       "PRIMARY KEY(klass, id, firstUsage, lastUsage)) " +
-      "WITH COMPRESSION = {};")
+      "WITH COMPRESSION = { 'sstable_compression': 'LZ4Compressor' };")
 
     session.execute(s"CREATE TABLE $keyspace.refs(" +
       "caller bigint, callee bigint, " +
@@ -799,7 +784,7 @@ class SpencerDB(val keyspace: String) {
       "thread text, " +
       "comment text, " +
       "PRIMARY KEY(caller, kind, start)) " +
-      "WITH COMPRESSION = {};")
+      "WITH COMPRESSION = { 'sstable_compression': 'LZ4Compressor' };")
 
     // allows to select efficiently using WHERE kind = 'var' in computeEdgeEnds
     session.execute(s"CREATE INDEX ON $keyspace.refs (KIND);")
@@ -812,26 +797,26 @@ class SpencerDB(val keyspace: String) {
       "thread text, " +
       "comment text, "+
       "PRIMARY KEY(caller, callee, start, end)) " +
-      "WITH COMPRESSION = {};")
+      "WITH COMPRESSION = { 'sstable_compression': 'LZ4Compressor' };")
 
     session.execute(s"CREATE TABLE $keyspace.uses(" +
       "caller bigint, callee bigint, name text, method text, kind text, idx bigint, thread text, comment text, " +
       "PRIMARY KEY(caller, callee, idx)" +
       ") " +
-      "WITH COMPRESSION = {};")
+      "WITH COMPRESSION = { 'sstable_compression': 'LZ4Compressor' };")
 
     session.close()
   }
 
   def initPreparedStatements(keyspace: String): Unit = {
-    this.session = SpencerDB.cluster.connect(keyspace)
+    this.session = CassandraSpencerDB.cluster.connect(keyspace)
 
     this.insertObjectStatement = this.session.prepare("INSERT INTO objects(id, klass, allocationSiteFile, allocationSiteLine, thread, comment) VALUES(?, ?, ?, ?, ?, ?);")
-    this.insertEdgeStatement = this.session.prepare(s"INSERT INTO ${this.keyspace}.refs(caller, callee, kind, name, thread, start, end, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
-    this.insertEdgeOpenStatement = this.session.prepare(s"INSERT INTO ${this.keyspace}.refs(caller, callee, kind, name, thread, start, comment) VALUES(?, ?, ?, ?, ?, ?, ?);")
-    this.finishEdgeStatement = this.session.prepare(s"UPDATE ${this.keyspace}.refs SET end = ? WHERE kind = ? AND start = ? AND caller = ?;")
+    this.insertEdgeStatement = this.session.prepare(s"INSERT INTO ${this.dbname}.refs(caller, callee, kind, name, thread, start, end, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
+    this.insertEdgeOpenStatement = this.session.prepare(s"INSERT INTO ${this.dbname}.refs(caller, callee, kind, name, thread, start, comment) VALUES(?, ?, ?, ?, ?, ?, ?);")
+    this.finishEdgeStatement = this.session.prepare(s"UPDATE ${this.dbname}.refs SET end = ? WHERE kind = ? AND start = ? AND caller = ?;")
 
-    this.insertCallStatement = this.session.prepare(s"INSERT INTO ${this.keyspace}.calls(caller, callee, name, start, end, thread, callsitefile, callsiteline, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);")
-    this.insertUseStatement = this.session.prepare(s"INSERT INTO ${this.keyspace}.uses(caller, callee, method, kind, name, idx, thread, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
+    this.insertCallStatement = this.session.prepare(s"INSERT INTO ${this.dbname}.calls(caller, callee, name, start, end, thread, callsitefile, callsiteline, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);")
+    this.insertUseStatement = this.session.prepare(s"INSERT INTO ${this.dbname}.uses(caller, callee, method, kind, name, idx, thread, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?);")
   }
 }

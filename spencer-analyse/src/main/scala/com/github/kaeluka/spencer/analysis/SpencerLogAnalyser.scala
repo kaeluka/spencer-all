@@ -1,7 +1,7 @@
 package com.github.kaeluka.spencer.analysis
 
 import com.github.kaeluka.spencer.Events
-import com.github.kaeluka.spencer.tracefiles.{SpencerDB, TraceFileIterator}
+import com.github.kaeluka.spencer.tracefiles.{CassandraSpencerDB, TraceFileIterator}
 import java.io.{File, FileInputStream}
 
 import com.google.common.base.Stopwatch

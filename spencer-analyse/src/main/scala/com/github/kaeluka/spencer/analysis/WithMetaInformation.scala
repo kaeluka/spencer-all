@@ -12,24 +12,34 @@ case class ObjWithMeta(oid: VertexId,
 
 case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[ObjWithMeta]] {
 
-  override def analyse(implicit g: SpencerData): RDD[ObjWithMeta] = {
-    val matchingIDs: RDD[VertexId] = inner.analyse(g)
+  override def analyse(implicit g: SpencerDB): RDD[ObjWithMeta] = {
+    import g.sqlContext.implicits._
+    val matchingIDs = inner.analyse(g).toDF
 
-    //    matchingIDs.
-    g.db.getTable("objects")
-      .select("id", "klass", "allocationsitefile", "allocationsiteline", "firstusage", "lastusage", "thread")
-      .where("id IN ?", matchingIDs.collect().toList)
+    println("getting meta info")
+    println("WARNING: GETTING ALL META INFO! USE JOINS!")
+
+    val frame = g.selectFrame("objects", "SELECT id, klass, allocationsitefile, allocationsiteline, firstusage, lastusage, thread " +
+      "FROM objects")
+//      .where($"id" isin matchingIDs)
+    frame.show(10)
+    val ret =frame
+      .rdd
       .map(row =>
         ObjWithMeta(
-          oid = row.getLong("id"),
-          klass = row.getStringOption("klass"),
-          allocationSite = row.getStringOption("allocationsitefile")
-            .flatMap(file => row.getLongOption("allocationsiteline").map(file+":"+_))
+          oid = row.getAs[Long]("id"),
+          klass = Option(row.getAs[String]("klass")),
+          allocationSite = Option(row.getAs[String]("allocationsitefile"))
+            .flatMap(file =>
+              Option(row.getAs[Long]("allocationsiteline"))
+                .map(line => file+":"+line.toString))
             .filter(! _.contains("<")),
-          firstUsage = row.getLong("firstusage"),
-          lastUsage = row.getLong("lastusage"),
-          thread = row.getStringOption("thread")
+          firstUsage = row.getAs[Long]("firstusage"),
+          lastUsage = row.getAs[Long]("lastusage"),
+          thread = Option(row.getAs[String]("thread"))
         ))
+    println("gotten meta info!")
+    ret
   }
 
   override def pretty(result: RDD[ObjWithMeta]): String = {
