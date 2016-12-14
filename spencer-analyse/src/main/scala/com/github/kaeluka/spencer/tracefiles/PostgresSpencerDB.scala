@@ -2,20 +2,16 @@ package com.github.kaeluka.spencer
 
 import java.io._
 import java.nio.file.{Path, Paths}
-import java.sql.{Connection, DriverManager, PreparedStatement}
+import java.sql.{Connection, DriverManager}
 import java.util.EmptyStackException
 
-import com.datastax.driver.core._
-import com.datastax.spark.connector.rdd.CassandraTableScanRDD
-import com.datastax.spark.connector.{CassandraRow, _}
 import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
 import com.github.kaeluka.spencer.analysis._
 import com.github.kaeluka.spencer.tracefiles.{EventsUtil, TraceFiles}
 import com.google.common.base.Stopwatch
 import org.apache.commons.io.FileUtils
 import org.apache.spark.graphx.{Edge, Graph}
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 import org.apache.spark.{SparkConf, SparkContext}
 
 import scala.collection.JavaConversions._
@@ -23,7 +19,7 @@ import scala.collection.JavaConversions._
 object PostgresSpencerDB {
   val conf = new SparkConf()
     .setAppName("spencer-analyse")
-    .set("spark.cassandra.connection.host", "127.0.0.1")
+//    .set("spark.cassandra.connection.host", "127.0.0.1")
     .set("spark.network.timeout", "1000")
     .set("spark.executor.heartbeatInterval", "1000")
     .setMaster("local[8]")
@@ -31,15 +27,9 @@ object PostgresSpencerDB {
     //      .setMaster("spark://Stephans-MacBook-Pro.local:7077")
     //              .set("spark.executor.memory", "4g").set("worker_max_heap", "1g")
 
-  val cluster =
-    Cluster.builder()
-      .addContactPoint("127.0.0.1")
-      //        .addContactPoint("130.238.10.30")
-      .build()
   val sc : SparkContext = new SparkContext(conf)
 
   def shutdown() = {
-    this.cluster.close()
     PostgresSpencerDB.sc.stop()
   }
 }
@@ -50,11 +40,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   val sqlContext: SQLContext = new SQLContext(PostgresSpencerDB.sc)
   sqlContext.setConf("keyspace", dbname)
 
-  def shutdown() = {
-    if (this.session != null) {
-      this.session.close()
-    }
-    PostgresSpencerDB.shutdown()
+  override def shutdown() = {
   }
 
   var insertUseStatement : java.sql.PreparedStatement = _
@@ -63,7 +49,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   var finishEdgeStatement : java.sql.PreparedStatement = _
   var insertCallStatement : java.sql.PreparedStatement = _
   var insertObjectStatement : java.sql.PreparedStatement = _
-  var session : Session = _
   val saveOrigin = dbname.equals("test")
 
   val stacks: CallStackAbstraction = new CallStackAbstraction()
@@ -343,16 +328,40 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertUseStatement.execute()
   }
 
+  override def getCachedOrDo(name: String, f: () => DataFrame): DataFrame = {
+    val opts = Map(
+      "url" -> s"jdbc:postgresql:$dbname",
+      "dbtable" -> name
+    )
+    var ret : DataFrame = null;
+    try {
+      println("trying to get frame...")
+      ret = getFrame(name)
+      println(s"found cached frame for $name")
+    } catch {
+      case e:Throwable => {
+        println(s"didn't find cached frame for $name (${e.getMessage}")
+        ret = f()
+        println(s"caching: $name")
+        assert(ret != null, "need result!")
+        assert(ret.write != null )
+        assert(ret.write.mode(SaveMode.Ignore) != null )
+        ret.write.mode(SaveMode.Ignore).jdbc(s"jdbc:postgresql:$dbname", name, new java.util.Properties())
+      }
+    }
+    ret
+  }
 
   def aproposObject(tag: Long): AproposData = {
-    val objTable: CassandraTableScanRDD[CassandraRow] = getTable("objects")
+//    ???
+    val objTable = getFrame("objects").rdd
 
     val theObj = objTable
-      .filter(_.getLong("id") == tag)
+      .filter(_.getAs[Long]("id") == tag)
 
-    val klass = theObj
+    val klass = Option(theObj
       .first()
-      .getStringOption("klass")
+      .getAs[String]("klass"))
 
     var allocMsg  = ""
     if (theObj.count == 0) {
@@ -361,64 +370,55 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       allocMsg += theObj.collect()(0)+"\n"
       allocMsg += "allocated at:\n  - "
       allocMsg += theObj
-        .map(row => row.getStringOption("allocationsitefile").toString ++":"++row.getLongOption("allocationsiteline").toString)
+        .map(row => Option(row.getAs[String]("allocationsitefile")).toString +":"+Option(row.getAs[Long]("allocationsiteline")).toString)
         .collect.mkString("\n  - ")
       allocMsg += "\n"
     }
 
-    val usesTable: CassandraTableScanRDD[CassandraRow] = this.getTable("uses")
-    val uses =
-      (usesTable.where("caller = ?", tag) ++
-        usesTable.where("callee = ?", tag))
+    val usesTable = this.selectFrame("uses", s"SELECT * FROM uses WHERE caller = $tag OR callee = $tag").rdd
+    val uses = usesTable
         .map(row=>
-          (row.getLong("caller"),
-            row.getLong("callee"),
-            row.getLong("idx"),
-            row.getStringOption("kind").getOrElse("<unknown kind>"),
-            row.getStringOption("name").getOrElse("<unknown name>"),
-            row.getStringOption("thread").getOrElse("<unknown thread>"),
-            row.getString("comment"))
+          (row.getAs[Long]("caller"),
+            row.getAs[Long]("callee"),
+            row.getAs[Long]("idx"),
+            Option(row.getAs[String]("kind")).getOrElse("<unknown kind>"),
+            Option(row.getAs[String]("name")).getOrElse("<unknown name>"),
+            Option(row.getAs[String]("thread")).getOrElse("<unknown thread>"),
+            row.getAs[String]("comment"))
         )
 
     val useEvents = uses.map {
       case ((caller, callee, idx, kind, name, thread, comment)) => AproposUseEvent(caller, callee, idx, kind, name, thread, "use "+comment).asInstanceOf[AproposEvent]
     }
 
-    val callsTable: CassandraTableScanRDD[CassandraRow] = this.getTable("calls")
-    val callsEvents =
-      (callsTable.where("caller = ?", tag) ++ callsTable.where("callee = ?", tag))
+    val callsTable = this.selectFrame("calls", s"SELECT * FROM calls WHERE caller = $tag OR callee = $tag").rdd
+    val callsEvents = callsTable
         .map(row =>
-          AproposCallEvent(row.getLong("caller")
-            , row.getLong("callee")
-            , row.getLong("start")
-            , row.getLong("end")
-            , row.getString("name")
-            , row.getString("callsitefile") + ":" + row.getLong("callsiteline")
-            , row.getStringOption("thread").getOrElse("<unknown thread>")
-            , row.getString("comment")).asInstanceOf[AproposEvent]
+          AproposCallEvent(row.getAs[Long]("caller")
+            , row.getAs[Long]("callee")
+            , row.getAs[Long]("callstart")
+            , row.getAs[Long]("callend")
+            , row.getAs[String]("name")
+            , row.getAs[String]("callsitefile") + ":" + row.getAs[Long]("callsiteline")
+            , Option(row.getAs[String]("thread")).getOrElse("<unknown thread>")
+            , row.getAs[String]("comment")).asInstanceOf[AproposEvent]
         )
 
-    val refsTable = this.getTable("refs")
+    val refsTable = this.selectFrame("refs", s"SELECT * FROM refs WHERE caller = $tag OR callee = $tag").rdd
     val refsEvents =
-      (refsTable.where("caller = ?", tag) ++
-        refsTable.where("callee = ?", tag)).map(row =>
+      refsTable.map(row =>
         AproposRefEvent(
-          row.getLong("caller")
-          , row.getLong("callee")
-          , row.getLong("start")
-          , row.getLongOption("end")
-          , row.getString("name")
-          , row.getString("kind")
-          , row.getStringOption("thread").getOrElse("<unknown thread>")
-          , row.getString("comment")).asInstanceOf[AproposEvent])
+          row.getAs[Long]("caller")
+          , row.getAs[Long]("callee")
+          , row.getAs[Long]("refstart")
+          , Option(row.getAs[Long]("refend"))
+          , row.getAs[String]("name")
+          , row.getAs[String]("kind")
+          , Option(row.getAs[String]("thread")).getOrElse("<unknown thread>")
+          , row.getAs[String]("comment")).asInstanceOf[AproposEvent])
 
-    val alloc = if (theObj.count > 0) {
-      Some(theObj.collect()(0).toMap)
-    } else {
-      None
-    }
     AproposData(
-      alloc,
+      None,
       (useEvents++callsEvents++refsEvents)
         .sortBy(AproposEvent.startTime).distinct().collect(), klass)
   }
@@ -437,9 +437,10 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   private def initGraph: Graph[ObjDesc, EdgeDesc] = {
-    val objs = this.getTable("objects")
-      .map(row => (row.getLong("id"), ObjDesc(klass = row.getStringOption("klass"))))
-      .setName("object graph vertices")
+    import sqlContext.implicits._
+    val objs = this.getFrame("objects").select("id", "klass").as[(Long, String)].map {
+      case (id, k) => (id, ObjDesc(klass = Option(k)))
+    }
 
     //    val uses = this.db.getTable("uses")
     //      .map(row => {
@@ -452,18 +453,19 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     //        )
     //      })
     //      .setName("object graph edges")
-    val refs = this.getTable("refs")
+    val refs = this.getFrame("refs").select("caller", "callee", "refstart", "refend", "kind")
+      .rdd
       .map(row => {
-        val fr = row.getLongOption("start")
-        val to = row.getLongOption("end")
+        val fr = Option(row.getAs[Long]("refstart"))
+        val to = Option(row.getAs[Long]("refend"))
         Edge(
-          row.getLong("caller"),
-          row.getLong("callee"),
-          EdgeDesc(fr, to, EdgeKind.fromRefsKind(row.getString("kind"))))
+          row.getAs[Long]("caller"),
+          row.getAs[Long]("callee"),
+          EdgeDesc(fr, to, EdgeKind.fromRefsKind(row.getAs[String]("kind"))))
       })
 
     val g: Graph[ObjDesc, EdgeDesc] =
-      Graph(objs, refs)
+      Graph(objs.rdd, refs)
     g.cache()
     g
   }
@@ -479,22 +481,22 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     ???
   }
 
-  @deprecated
-  def getTable(table: String): CassandraTableScanRDD[CassandraRow] = {
-    assert(PostgresSpencerDB.sc != null, "need to have spark context")
-    assert(this.session != null, "need to have db session")
-    val ret = PostgresSpencerDB.sc.cassandraTable(this.session.getLoggedKeyspace, table)
-    ret
-  }
+//  @deprecated
+//  def getTable(table: String): CassandraTableScanRDD[CassandraRow] = {
+//    assert(PostgresSpencerDB.sc != null, "need to have spark context")
+//    assert(this.session != null, "need to have db session")
+//    val ret = PostgresSpencerDB.sc.cassandraTable(this.session.getLoggedKeyspace, table)
+//    ret
+//  }
 
-  def getProperObjects: RDD[CassandraRow] = {
-    //FIXME: use WHERE clause
-    getTable("objects")
-      .filter(_.getLong("id") > 0)
-      .filter(
-        _.getStringOption("comment")
-          .forall(!_.contains("late initialisation")))
-  }
+//  def getProperObjects: RDD[CassandraRow] = {
+//    //FIXME: use WHERE clause
+//    getTable("objects")
+//      .filter(_.getLong("id") > 0)
+//      .filter(
+//        _.getStringOption("comment")
+//          .forall(!_.contains("late initialisation")))
+//  }
 
   /**
     * The instrumentation is limited in what byte code it can generate, due to
@@ -525,7 +527,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     * #60 exit(<init>)    // C constructor
     */
   def sortConstructorCalls(): Unit = {
-    import this.sqlContext.implicits._
 
     val my_calls= getFrame("calls")
     my_calls.createOrReplaceTempView("my_calls")
@@ -663,24 +664,24 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     }
   }
 
-  def generatePerClassObjectsTable(): Unit = {
-    getTable("objects").collect().foreach(row => {
-      val id = row.getLong("id").asInstanceOf[java.lang.Long]
-      val klass = row.getStringOption("klass")
-      val allocationsitefile = row.getStringOption("allocationsitefile").getOrElse(null).asInstanceOf[String]
-      val allocationsiteline = row.getLongOption("allocationsiteline").getOrElse(null).asInstanceOf[java.lang.Long]
-      val firstUsage = row.getLong("firstusage").asInstanceOf[java.lang.Long]
-      val lastUsage = row.getLong("lastusage").asInstanceOf[java.lang.Long]
-      val thread = row.getStringOption("thread").getOrElse(null)
-      val comment = row.getStringOption("comment").getOrElse(null)
-
-      this.session.execute("INSERT INTO objects_per_class (" +
-        "id, klass, allocationsitefile, allocationsiteline, firstusage, " +
-        "lastusage, thread, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
-        id, klass.getOrElse("<unknown class>"), allocationsitefile, allocationsiteline, firstUsage, lastUsage,
-        thread, comment)
-    })
-  }
+//  def generatePerClassObjectsTable(): Unit = {
+//    getFrame("objects").foreach(row => {
+//      val id = row.getAs[Long]("id").asInstanceOf[java.lang.Long]
+//      val klass = Option(row.getAs[String]("klass"))
+//      val allocationsitefile = row.getAs[String]("allocationsitefile")
+//      val allocationsiteline = row.getAs[Long]("allocationsiteline")
+//      val firstUsage = row.getLong("firstusage").asInstanceOf[java.lang.Long]
+//      val lastUsage = row.getLong("lastusage").asInstanceOf[java.lang.Long]
+//      val thread = row.getStringOption("thread").getOrElse(null)
+//      val comment = row.getStringOption("comment").getOrElse(null)
+//
+//      this.session.execute("INSERT INTO objects_per_class (" +
+//        "id, klass, allocationsitefile, allocationsiteline, firstusage, " +
+//        "lastusage, thread, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+//        id, klass.getOrElse("<unknown class>"), allocationsitefile, allocationsiteline, firstUsage, lastUsage,
+//        thread, comment)
+//    })
+//  }
 
   def storeClassFile(logDir: Path, file: File) {
     val relPath = logDir.relativize(file.toPath)
@@ -765,9 +766,15 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
   @deprecated
   def connectToKeyspace(keyspace: String): Unit = {
-    this.session = PostgresSpencerDB.cluster.connect(keyspace)
   }
+
   def initDbConnection(): Unit = {
+
+    val opts = Map(
+      "url"     -> s"jdbc:postgresql:$dbname",
+      "dbtable" -> dbname,
+      "user"    -> "spencer"
+    )
     if (this.conn != null) {
       this.conn.close()
     }
@@ -842,7 +849,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   def initPreparedStatements(keyspace: String): Unit = {
-    this.session = PostgresSpencerDB.cluster.connect(keyspace)
     this.initDbConnection()
 
     this.insertObjectStatement = this.conn.prepareStatement(

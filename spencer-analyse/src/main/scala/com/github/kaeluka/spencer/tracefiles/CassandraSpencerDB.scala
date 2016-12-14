@@ -51,11 +51,11 @@ object CassandraSpencerDB {
   }
 }
 
-class CassandraSpencerDB(dbname: String) extends SpencerDB {
+abstract class CassandraSpencerDB(dbname: String) extends SpencerDB {
   val sqlContext: SQLContext = new SQLContext(CassandraSpencerDB.sc)
   sqlContext.setConf("keyspace", dbname)
 
-  def shutdown() = {
+  override def shutdown() = {
     this.session.close()
     CassandraSpencerDB.shutdown()
   }

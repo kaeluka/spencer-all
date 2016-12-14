@@ -3,7 +3,7 @@ package com.github.kaeluka.spencer.analysis
 import java.io._
 import java.nio.charset.StandardCharsets
 
-import com.github.kaeluka.spencer.tracefiles.CassandraSpencerDB
+import com.github.kaeluka.spencer.PostgresSpencerDB
 import com.google.common.base.Stopwatch
 import org.apache.spark.graphx.{Graph, VertexId}
 import org.apache.spark.rdd.RDD
@@ -30,46 +30,6 @@ object SpencerAnalyserUtil {
     }
   }
 }
-
-/*
-case class Snapshotted[T: ClassTag](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[RDD[T]] {
-  override def analyse(implicit g: SpencerDB): RDD[T] = {
-    if (inner.isInstanceOf[Snapshotted[_]]) {
-      inner.analyse
-    } else {
-      val watch: Stopwatch = Stopwatch.createStarted()
-      val queryString = inner.toString
-      val snapshots = g.db.getTable("snapshots").where("query = ?", queryString)
-      assert(snapshots.count == 0 || snapshots.count == 1)
-
-      if (snapshots.count == 0) {
-        val result = inner.analyse.cache()
-        val baostream: ByteArrayOutputStream = new ByteArrayOutputStream()
-        val ostream: ObjectOutputStream = new ObjectOutputStream(baostream)
-        ostream.writeObject(result.collect())
-
-        val resultSerialised : ByteBuffer = ByteBuffer.wrap(baostream.toByteArray)
-        println(s"snapshot for query $queryString: writing ${resultSerialised.array().length} bytes")
-        g.db.session.execute("INSERT INTO "+g.db.session.getLoggedKeyspace+".snapshots (query, result) VALUES (?, ?);", queryString, resultSerialised)
-        result
-      } else {
-        val resultSerialised = snapshots.first().getBytes("result")
-        println(s"snapshot for query $queryString: reading ${resultSerialised.array().length} bytes")
-        val ois: ObjectInputStream = new ObjectInputStream(new ByteArrayInputStream(resultSerialised.array()))
-        val res = CassandraSpencerDB.sc.parallelize(ois.readObject().asInstanceOf[Array[T]])
-        println(s"deserialising took $watch")
-        res
-      }
-    }
-  }
-
-  override def pretty(result: RDD[T]): String = inner.pretty(result)
-
-  override def toString: String = inner.toString
-
-  override def explanation(): String = inner.explanation()
-}
-*/
 
 case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
   override def analyse(implicit g: SpencerDB): Option[String] = {
@@ -303,15 +263,15 @@ object Scratch extends App {
 
   run
 
-  def run: Unit = {
-    implicit val db: CassandraSpencerDB = new CassandraSpencerDB("test")
+  def run(): Unit = {
+    implicit val db: SpencerDB = new PostgresSpencerDB("test")
     db.connect()
 
     val watch: Stopwatch = Stopwatch.createStarted()
 
     val query =
 //      InRefsHistory()
-      ImmutableObj()
+      QueryParser.parseObjQuery("Deeply(TinyObj())").right.get
 //        ProportionPerAllocationSite(Deeply(MutableObj()) and ObjWithInstanceCountAtLeast(10))
 //        InstanceOfClass("Foo") vs MaxInDegree(MaxInDegree.Unique, InDegreeSpec.HEAP)
 //        InstanceOfClass("Foo") vs (ImmutableObj() and ImmutableObj())
@@ -332,6 +292,8 @@ object Scratch extends App {
 
     val res = query.analyse
     println("name: "+query.toString)
+    println("result size: "+res.rdd.count())
+    res.show(10)
     println("expl: "+query.explanation())
 
     //  res.collect().foreach(id => {

@@ -80,9 +80,13 @@ trait SpencerDB {
     this.sqlContext.sql(query)
   }
 
+  def getCachedOrDo(name: String, f: () => DataFrame) : DataFrame
+
   def getFrame(name: String): DataFrame
 
   def connect()
+
+  def shutdown()
 
   val sqlContext : SQLContext
 
