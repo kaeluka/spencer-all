@@ -35,7 +35,7 @@ case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
   override def analyse(implicit g: SpencerDB): Option[String] = {
     import g.sqlContext.implicits._
     val result =
-      g.selectFrame("classdumps", s"SELECT bytecode FROM classdumps WHERE classname = $klass").as[Array[Byte]].rdd
+      g.selectFrame("classdumps", s"SELECT bytecode FROM classdumps WHERE classname = '$klass'").as[Array[Byte]].rdd
     assert(result.count() <= 1)
     if (result.count() == 0) {
       None
@@ -235,29 +235,6 @@ object ProportionPerAllocationSite {
   }
 }
 */
-
-case class ConnectedComponent(marker: VertexId, members: Array[VertexId]) {
-  override def toString(): String = {
-    "ConnectedComponent("+marker+", "+members.mkString("{", ",", "}")+")"
-  }
-}
-
-case class ConnectedComponents(minSize: Int) extends SpencerAnalyser[RDD[ConnectedComponent]] {
-  def analyse(implicit g: SpencerDB): RDD[ConnectedComponent] = {
-    val graph: Graph[ObjDesc, EdgeDesc] = g.getGraph()
-    val components: Graph[VertexId, EdgeDesc] = graph.subgraph(epred = _.attr.kind == EdgeKind.FIELD).connectedComponents()
-
-    val compSet = components.vertices
-    compSet
-      .groupBy(_._2) // group by group ID
-      .map { case (marker, iter) => ConnectedComponent(marker, iter.map(_._1).toArray) }
-      .filter(_.members.size >= minSize)
-  }
-
-  def pretty(result: RDD[ConnectedComponent]) : String = result.collect().mkString("\n")
-
-  override def explanation(): String = "connected"
-}
 
 object Scratch extends App {
 

@@ -49,8 +49,8 @@ object SpencerGraphImplicits {
 //      .setName("object graph edges")
     val refs = this.db.getTable("refs")
       .map(row => {
-        val fr = row.getLongOption("start")
-        val to = row.getLongOption("end")
+        val fr = row.getLongOption("refstart")
+        val to = row.getLongOption("refend")
         Edge(
           row.getLong("caller"),
           row.getLong("callee"),
