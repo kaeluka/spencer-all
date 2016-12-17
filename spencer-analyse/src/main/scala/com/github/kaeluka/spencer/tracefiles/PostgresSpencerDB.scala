@@ -790,7 +790,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       this.conn.close()
     }
     this.conn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
-    this.conn.setAutoCommit(false)
+    this.conn.setAutoCommit(true)
   }
 
   def createFreshTables(dbname: String) {
@@ -858,7 +858,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  bytecode bytea,
         |  PRIMARY KEY(classname))
       """.stripMargin)
-    this.conn.commit()
   }
 
   def initPreparedStatements(keyspace: String): Unit = {
