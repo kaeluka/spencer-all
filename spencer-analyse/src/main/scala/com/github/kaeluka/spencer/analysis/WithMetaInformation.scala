@@ -2,13 +2,38 @@ package com.github.kaeluka.spencer.analysis
 
 import org.apache.spark.graphx._
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.DataFrame
 
 case class ObjWithMeta(oid: VertexId,
                        klass: Option[String],
                        allocationSite: Option[String],
                        firstUsage: Long,
                        lastUsage: Long,
-                       thread: Option[String])
+                       thread: Option[String],
+                       connectedComponent: Long)
+
+case class ConnectedComponent() extends VertexIdAnalyser {
+  def analyse(implicit g: SpencerDB): DataFrame = {
+    import g.sqlContext.implicits._
+    val graph: Graph[ObjDesc, EdgeDesc] = g.getGraph()
+    val components: Graph[VertexId, EdgeDesc] = graph.subgraph(epred = _.attr.kind == EdgeKind.FIELD).connectedComponents()
+
+    val joined = graph.outerJoinVertices(components.vertices) {
+      (vid, _odesc, optCC) => optCC
+    }
+
+    val data = joined.vertices.toDF.withColumnRenamed("_1", "id").withColumnRenamed("_2", "connectedComponent")
+
+    data.show(10)
+
+    data.filter($"connectedComponent" ===  -12326).show(10000)
+
+    data
+  }
+
+  override def explanation(): String = "are connected"
+}
+
 
 case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[ObjWithMeta]] {
 
@@ -21,9 +46,11 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
 
     val frame = g.selectFrame("objects", "SELECT id, klass, allocationsitefile, allocationsiteline, firstusage, lastusage, thread " +
       "FROM objects")
-//      .where($"id" isin matchingIDs)
-    frame.show(10)
+
+    val connectedComponents: DataFrame = ConnectedComponent().analyse
+
     val ret =frame
+      .join(connectedComponents, Seq("id"), "outer")
       .rdd
       .map(row =>
         ObjWithMeta(
@@ -36,7 +63,8 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
             .filter(! _.contains("<")),
           firstUsage = row.getAs[Long]("firstusage"),
           lastUsage = row.getAs[Long]("lastusage"),
-          thread = Option(row.getAs[String]("thread"))
+          thread = Option(row.getAs[String]("thread")),
+          connectedComponent = row.getAs[Long]("connectedComponent")
         ))
     println("gotten meta info!")
     ret
@@ -49,11 +77,12 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
 
   def availableVariables : Map[String,String] = {
     Map(
-    "klass"          -> "categorical",
-    "allocationSite" -> "categorical",
-    "firstUsage"     -> "ordinal",
-    "lastUsage"      -> "ordinal",
-    "thread"         -> "categorical"
+      "klass"              -> "categorical",
+      "allocationSite"     -> "categorical",
+      "firstUsage"         -> "ordinal",
+      "lastUsage"          -> "ordinal",
+      "thread"             -> "categorical",
+      "connectedComponent" -> "categorical"
     )
   }
 

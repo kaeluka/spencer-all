@@ -120,9 +120,9 @@ case class InDegreeMap(spec: InDegreeSpec = HEAP_OR_STACK) extends SpencerAnalys
 //      case HEAP => g.db.getTable("refs").filter(_.getString("kind") == "field")
 //      case STACK => g.db.getTable("refs").filter(_.getString("kind") == "var")
 //      case HEAP_OR_STACK => g.db.getTable("refs")
-      case HEAP => g.selectFrame("refs", "SELECT callee, start, end FROM refs WHERE kind = 'field'")
-      case STACK => g.selectFrame("refs", "SELECT callee, start, end FROM refs WHERE kind = 'var'")
-      case HEAP_OR_STACK => g.selectFrame("refs", "SELECT callee, start, end FROM refs")
+      case HEAP => g.selectFrame("refs",          "SELECT callee, refstart, refend FROM refs WHERE kind = 'field'")
+      case STACK => g.selectFrame("refs",         "SELECT callee, refstart, refend FROM refs WHERE kind = 'var'")
+      case HEAP_OR_STACK => g.selectFrame("refs", "SELECT callee, refstart, refend FROM refs")
     }).as[(Long, Long, Option[Long])].rdd
 
     val res = refs

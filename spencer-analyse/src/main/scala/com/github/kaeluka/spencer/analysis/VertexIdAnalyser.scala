@@ -143,9 +143,6 @@ case class StationaryObj() extends VertexIdAnalyser {
       .groupBy(_._1)
       .filter({
         case (callee, events) =>
-          if (callee == 8157) {
-            println("foo")
-          }
           var hadRead = false
           var res : Option[VertexId] = Some(callee)
           val it: Iterator[(Long, String, String)] = events.iterator
