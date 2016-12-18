@@ -58,18 +58,21 @@ object QueryParser {
       | "HeapUniqueObj()"
       | "TinyObj()"
       | "StackBoundObj()"
+      | "AgeOrderedObj()"
+      | "ReverseAgeOrderedObj()"
       | "Obj()"
-      | "PrimitiveObj()"
       ).!)
       .map {
-        case "MutableObj()"    => MutableObj()
-        case "ImmutableObj()"  => ImmutableObj()
-        case "StationaryObj()" => StationaryObj()
-        case "UniqueObj()"     => MaxInDegree.UniqueObj()
-        case "HeapUniqueObj()" => MaxInDegree.HeapUniqueObj()
-        case "TinyObj()"       => TinyObj()
-        case "StackBoundObj()" => MaxInDegree.StackBoundObj()
-        case "Obj()"           => Obj()
+        case "MutableObj()"           => MutableObj()
+        case "ImmutableObj()"         => ImmutableObj()
+        case "StationaryObj()"        => StationaryObj()
+        case "UniqueObj()"            => MaxInDegree.UniqueObj()
+        case "HeapUniqueObj()"        => MaxInDegree.HeapUniqueObj()
+        case "TinyObj()"              => TinyObj()
+        case "StackBoundObj()"        => MaxInDegree.StackBoundObj()
+        case "AgeOrderedObj()"        => AgeOrderedObj()
+        case "ReverseAgeOrderedObj()" => ReverseAgeOrderedObj()
+        case "Obj()"                  => Obj()
       }
       .map(_.snapshotted())
   }
@@ -91,6 +94,8 @@ object QueryParser {
       "HeapUniqueObj()",
       "TinyObj()",
       "StackBoundObj()",
+      "AgeOrderedObj()",
+      "ReverseAgeOrderedObj()",
       "InstanceOfClass("+klass+")",
       "AllocatedAt("+allocationSite+")",
       "Obj()"

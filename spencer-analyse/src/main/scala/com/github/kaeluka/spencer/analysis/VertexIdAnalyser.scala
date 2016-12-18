@@ -4,8 +4,8 @@ import com.github.kaeluka.spencer.PostgresSpencerDB
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
 import com.google.common.base.Stopwatch
 import org.apache.spark.graphx._
-import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions._
 
 trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
 
@@ -101,10 +101,70 @@ case class SnapshottedVertexIdAnalyser(inner : VertexIdAnalyser) extends VertexI
   override def explanation(): String = inner.explanation()
 }
 
-case class MutableObj() extends VertexIdAnalyser {
+/**
+  * filters for all objects that only ever have references to objects older than
+  * them
+  */
+case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
     import g.sqlContext.implicits._
+    AgeOfNeighbours().analyse
+      .groupBy("id", "firstUsage")
+      .agg(min($"calleeFirstUsage"), $"firstUsage")
+      .where($"min(calleeFirstUsage)" > $"firstUsage").select("id") union TinyObj().snapshotted().analyse
+  }
+
+  override def explanation(): String = {
+    "are only holding field references to objects created after them"
+  }
+
+}
+
+/**
+  * filters for all objects that only ever have references to objects younger than
+  * them
+  */
+case class AgeOrderedObj() extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    import g.sqlContext.implicits._
+//    AgeOfNeighbours().snapshotted().analyse.show()
+    AgeOfNeighbours().analyse
+      .groupBy("id", "firstUsage")
+      .agg(max($"calleeFirstUsage"), $"firstUsage")
+      .where($"max(calleeFirstUsage)" < $"firstUsage").select("id") union TinyObj().snapshotted().analyse
+  }
+
+  override def explanation(): String = {
+    "are only holding field references to objects created before them"
+  }
+}
+
+case class AgeOfNeighbours() extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    g.getFrame("refs").createOrReplaceTempView("refs")
+    val query =
+      """SELECT
+        |  objects.id         AS id,
+        |  objects.firstUsage AS firstUsage,
+        |  callees.firstUsage AS calleeFirstUsage
+        |FROM objects
+        |INNER JOIN refs               ON objects.id = refs.caller
+        |INNER JOIN objects AS callees ON refs.callee = callees.id
+        |WHERE
+        |  refs.kind = 'field'
+      """.stripMargin
+
+    g.selectFrame("objects", query)
+  }
+
+  override def explanation(): String = "Age"
+}
+
+
+case class MutableObj() extends VertexIdAnalyser {
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
     val objects = Obj().analyse
 
     g.selectFrame("uses",
@@ -124,7 +184,6 @@ case class MutableObj() extends VertexIdAnalyser {
 case class ImmutableObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
     val objects = Obj().analyse.select("id")
 
     val immutableIDs = objects.except(MutableObj().analyse.select("id"))
@@ -205,7 +264,6 @@ case class StationaryObj() extends VertexIdAnalyser {
 case class Obj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
     g.selectFrame("objects", "SELECT id FROM objects WHERE id >= 4")
   }
 
@@ -215,7 +273,6 @@ case class Obj() extends VertexIdAnalyser {
 case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
     g.selectFrame("objects", s"SELECT id FROM objects WHERE " +
       s"allocationsitefile = '${allocationSite._1}' AND " +
       s"allocationsiteline = ${allocationSite._2}")
@@ -234,7 +291,6 @@ case class InstanceOfClass(klassName: String) extends VertexIdAnalyser {
     this(klass.getName)
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
     g.selectFrame("objects", s"SELECT id FROM objects WHERE klass = '$klassName'")
   }
 
@@ -281,16 +337,6 @@ case class Deeply(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   }
 }
 
-//case class ObjWithInstanceCountAtLeast(n : Int) extends VertexIdAnalyser {
-//  override def analyse(implicit g: SpencerDB): DataFrame = {
-//    ObjsByClass().analyse
-//      .filter(_._2.size >= n)
-//      .flatMap(_._2)
-//  }
-//
-//  override def explanation(): String = "created from classes with at least "+n+" instances in total"
-//}
-
 case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     ???
@@ -324,7 +370,7 @@ case class ConnectedWith(roots: VertexIdAnalyser
     val empty = Set().asInstanceOf[Set[VertexId]]
     val mappedGraph = g.getGraph()
       .mapVertices { case (vertexId, objDesc) =>
-        import g.sqlContext.implicits._
+
         rootsCollected.contains(vertexId.asInstanceOf[Long])
       }
 
@@ -366,7 +412,6 @@ case class ConnectedWith(roots: VertexIdAnalyser
 
 case class TinyObj() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
     val withRefTypeFields = g.selectFrame("refs", "SELECT DISTINCT caller FROM refs WHERE kind = 'field'").withColumnRenamed("caller", "id")
     Obj().analyse.join(withRefTypeFields, List("id"), "left_anti")
   }
@@ -374,56 +419,14 @@ case class TinyObj() extends VertexIdAnalyser {
   override def explanation(): String = "do not have or do not use reference type fields"
 }
 
-/*
-case class GroupByAllocationSite(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[((Option[String], Option[Long]), Iterable[VertexId])]] {
-  override def analyse(implicit g: SpencerDB): RDD[((Option[String], Option[Long]), Iterable[VertexId])] = {
-    val innerCollected = inner.analyse.collect()
-    g.db.getTable("objects")
-      .select("allocationsitefile", "allocationsiteline", "id")
-      .where("id IN ?", innerCollected.toList)
-      .map(row => (row.getStringOption("allocationsitefile"), row.getLongOption("allocationsiteline"), row.getLong("id")))
-      .map({case (row, line, id) =>
-        (
-          (
-            row match {
-              case Some(r) =>
-                if (r.startsWith("<"))
-                  None
-                else
-                  Some(r)
-              case other => other
-            },
-            line match {
-              case Some(-1) => None
-              case other => other
-            })
-          , id
-          )
-      })
-      .groupBy(_._1)
-      .map({case (klass, iter) => (klass, iter.map(_._2))})
-  }
+object VertexIdAnalyserTest extends App {
 
-  override def pretty(result: RDD[((Option[String], Option[Long]), Iterable[VertexId])]): String = {
-    val collected =
-      (if (result.count() < 1000) {
-        result.sortBy(_._2.size*(-1))
-      } else {
-        result
-      }).collect()
+  implicit val db: SpencerDB = new PostgresSpencerDB("test")
+  db.connect()
 
-    this.toString+":\n"+
-      collected.map({
-        case (allocationSite, instances) =>
-          val size = instances.size
-          allocationSite+"\t-\t"+(if (size > 50) {
-            instances.take(50).mkString("\t"+size+" x - [ ", ", ", " ... ]")
-          } else {
-            instances.mkString("\t"+size+" x - [ ", ", ", " ]")
-          })
-      }).mkString("\n")
-  }
-
-  override def explanation(): String = "some objects, grouped by allocation site"
+  val watch: Stopwatch = Stopwatch.createStarted()
+  val res = AgeOrderedObj().analyse //AgeOrderedObj().analyse
+  res.repartition().cache().show()
+  println("analysis took "+watch.stop())
+  println(s"got ${res.count} objects")
 }
-*/

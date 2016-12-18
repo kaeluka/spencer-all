@@ -1,5 +1,7 @@
 package com.github.kaeluka.spencer.analysis
 
+import com.github.kaeluka.spencer.PostgresSpencerDB
+import com.google.common.base.Stopwatch
 import org.apache.spark.graphx._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
@@ -10,7 +12,8 @@ case class ObjWithMeta(oid: VertexId,
                        firstUsage: Long,
                        lastUsage: Long,
                        thread: Option[String],
-                       connectedComponent: Long)
+                       connectedComponent: Long,
+                       ageOrdered: Float)
 
 case class ConnectedComponent() extends VertexIdAnalyser {
   def analyse(implicit g: SpencerDB): DataFrame = {
@@ -47,7 +50,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
     val frame = g.selectFrame("objects", "SELECT id, klass, allocationsitefile, allocationsiteline, firstusage, lastusage, thread " +
       "FROM objects")
 
-    val connectedComponents: DataFrame = ConnectedComponent().analyse
+    val connectedComponents: DataFrame = ConnectedComponent().snapshotted().analyse
 
     val ret =frame
       .join(connectedComponents, Seq("id"), "outer")
@@ -64,7 +67,8 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
           firstUsage = row.getAs[Long]("firstusage"),
           lastUsage = row.getAs[Long]("lastusage"),
           thread = Option(row.getAs[String]("thread")),
-          connectedComponent = row.getAs[Long]("connectedComponent")
+          connectedComponent = row.getAs[Long]("connectedComponent"),
+          ageOrdered = 0.0f
         ))
     println("gotten meta info!")
     ret
@@ -82,7 +86,8 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
       "firstUsage"         -> "ordinal",
       "lastUsage"          -> "ordinal",
       "thread"             -> "categorical",
-      "connectedComponent" -> "categorical"
+      "connectedComponent" -> "categorical",
+      "ageOrdered"         -> "numerical"
     )
   }
 
@@ -90,3 +95,12 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
 
 }
 
+object WithMetaInformationTest extends App {
+
+  implicit val db: SpencerDB = new PostgresSpencerDB("test")
+  db.connect()
+
+  val watch: Stopwatch = Stopwatch.createStarted()
+  AgeOrderedObj().analyse.show()
+  println("analysis took "+watch.stop())
+}
