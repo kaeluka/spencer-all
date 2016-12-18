@@ -360,26 +360,14 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   def aproposObject(tag: Long): AproposData = {
-//    ???
-    val objTable = getFrame("objects").rdd
+    val theObj = selectFrame("objects", s"SELECT klass FROM objects WHERE id == $tag").rdd
 
-    val theObj = objTable
-      .filter(_.getAs[Long]("id") == tag)
-
-    val klass = Option(theObj
-      .first()
-      .getAs[String]("klass"))
-
-    var allocMsg  = ""
-    if (theObj.count == 0) {
-      allocMsg += "<not initialised>\n"
+    val klass = if (theObj.count() > 0) {
+      Option(theObj
+        .first()
+        .getAs[String]("klass"))
     } else {
-      allocMsg += theObj.collect()(0)+"\n"
-      allocMsg += "allocated at:\n  - "
-      allocMsg += theObj
-        .map(row => Option(row.getAs[String]("allocationsitefile")).toString +":"+Option(row.getAs[Long]("allocationsiteline")).toString)
-        .collect.mkString("\n  - ")
-      allocMsg += "\n"
+      None
     }
 
     val usesTable = this.selectFrame("uses", s"SELECT * FROM uses WHERE caller = $tag OR callee = $tag").rdd
@@ -790,7 +778,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       this.conn.close()
     }
     this.conn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
-    this.conn.setAutoCommit(false)
+    this.conn.setAutoCommit(true)
   }
 
   def createFreshTables(dbname: String) {
@@ -858,7 +846,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  bytecode bytea,
         |  PRIMARY KEY(classname))
       """.stripMargin)
-    this.conn.commit()
   }
 
   def initPreparedStatements(keyspace: String): Unit = {
