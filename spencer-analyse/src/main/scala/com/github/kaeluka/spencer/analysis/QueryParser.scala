@@ -10,7 +10,9 @@ object QueryParser {
 
   def connectedWith =
     P("ReachableFrom("~objQuery~")").map(x => Named(ConnectedWith(x), "ReachableFrom("+x.toString+")")) |
-      P("CanReach("~objQuery~")").map(x => Named(ConnectedWith(x, reverse = true), "CanReach("+x.toString+")"))
+      P("CanReach("~objQuery~")").map(x => Named(ConnectedWith(x, reverse = true), "CanReach("+x.toString+")")) |
+      P("HeapReachableFrom("~objQuery~")").map(x => Named(ConnectedWith(x), "HeapReachableFrom("+x.toString+")")) |
+      P("CanHeapReach("~objQuery~")").map(x => Named(ConnectedWith(x, reverse = true), "CanHeapReach("+x.toString+")"))
 
   def deeply =
     P("Deeply("~objQuery~")").map(Deeply)
