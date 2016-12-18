@@ -61,7 +61,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
           klass = Option(row.getAs[String]("klass")),
           allocationSite = Option(row.getAs[String]("allocationsitefile"))
             .flatMap(file =>
-              Option(row.getAs[Long]("allocationsiteline"))
+              Option(row.getAs[Int]("allocationsiteline"))
                 .map(line => file+":"+line.toString))
             .filter(! _.contains("<")),
           firstUsage = row.getAs[Long]("firstusage"),
