@@ -12,8 +12,7 @@ case class ObjWithMeta(oid: VertexId,
                        firstUsage: Long,
                        lastUsage: Long,
                        thread: Option[String],
-                       connectedComponent: Long,
-                       ageOrdered: Float)
+                       connectedComponent: Long)
 
 case class ConnectedComponent() extends VertexIdAnalyser {
   def analyse(implicit g: SpencerDB): DataFrame = {
@@ -67,8 +66,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
           firstUsage = row.getAs[Long]("firstusage"),
           lastUsage = row.getAs[Long]("lastusage"),
           thread = Option(row.getAs[String]("thread")),
-          connectedComponent = row.getAs[Long]("connectedComponent"),
-          ageOrdered = 0.0f
+          connectedComponent = row.getAs[Long]("connectedComponent")
         ))
     println("gotten meta info!")
     ret
@@ -83,11 +81,10 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
     Map(
       "klass"              -> "categorical",
       "allocationSite"     -> "categorical",
-      "firstUsage"         -> "ordinal",
-      "lastUsage"          -> "ordinal",
+      "firstUsage"         -> "numerical",
+      "lastUsage"          -> "numerical",
       "thread"             -> "categorical",
-      "connectedComponent" -> "categorical",
-      "ageOrdered"         -> "numerical"
+      "connectedComponent" -> "categorical"
     )
   }
 
