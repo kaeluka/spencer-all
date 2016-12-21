@@ -15,7 +15,8 @@ object QueryParser {
       P("CanHeapReach("~objQuery~")").map(x => Named(ConnectedWith(x, edgeFilter = Some(_ == EdgeKind.FIELD), reverse = true), "CanHeapReach("+x.toString+")"))
 
   def deeply =
-    P("Deeply("~objQuery~")").map(Deeply)
+    P("Deeply("~objQuery~")").map(q => Deeply(q)) |
+      P("HeapDeeply("~objQuery~")").map(q => Deeply(q, edgeFilter = Some(_ == EdgeKind.FIELD)))
 
   def constSet =
     P("Set(" ~ number.rep(sep = " ").map(_.toSet) ~")").map(set => Named(ConstSeq(set.toSeq), "Set"))

@@ -324,11 +324,12 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
   override def explanation(): String = this.expl
 }
 
-case class Deeply(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class Deeply(inner: VertexIdAnalyser,
+                  edgeFilter : Option[EdgeKind => Boolean] = None) extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     val allObjs = Obj().analyse
     val negativeRoots = allObjs.join(inner.analyse, List("id"), "left_anti")
-    val reachingNegativeRoots = ConnectedWith(Const(negativeRoots), reverse = true, edgeFilter = Some(_ == EdgeKind.FIELD))
+    val reachingNegativeRoots = ConnectedWith(Const(negativeRoots), reverse = true, edgeFilter)
     IsNot(reachingNegativeRoots).analyse
   }
 
