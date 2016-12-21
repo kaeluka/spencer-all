@@ -78,8 +78,23 @@ object QueryParser {
       .map(_.snapshotted())
   }
 
+  def escape(txt: String): String = {
+    txt
+      .replace(" ", "%20")
+      .replace("[", "%5B")
+  }
+
+  def unescape(txt: String): String = {
+    txt
+      .replace("%20", " ")
+      .replace("%5B", "[")
+  }
+
   def parseObjQuery(txt: String): Either[String, VertexIdAnalyser] = {
-    val res: Parsed[VertexIdAnalyser, Char, String] = objQuery.parse(txt.replace("%20", " "))
+    println(s"input text: $txt")
+    val res: Parsed[VertexIdAnalyser, Char, String] = objQuery.parse(
+      unescape(txt)
+    )
     res match {
       case Parsed.Success(value, _) => Right(value.snapshotted())
       case Parsed.Failure(_, index, extra) =>
