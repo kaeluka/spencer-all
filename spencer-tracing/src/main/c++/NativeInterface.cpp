@@ -964,8 +964,7 @@ JNIEXPORT void JNICALL Java_NativeInterface_newObj(JNIEnv *, jclass, jobject,
 }
 
 
-void handleStoreFieldA(
-                       JNIEnv *env, jclass native_interface, jint holderKind, jobject holder,
+void handleStoreFieldA(JNIEnv *env, jclass native_interface, jint holderKind, jobject holder,
                        jobject newval,
                        jobject oldval,
                        std::string holderClass,
@@ -1017,8 +1016,7 @@ void handleStoreFieldA(
 #endif // ifdef ENABLED
 }
 
-JNIEXPORT void JNICALL Java_NativeInterface_storeFieldA(
-                                                        JNIEnv *env, jclass native_interface, jint holderKind, jobject holder,
+JNIEXPORT void JNICALL Java_NativeInterface_storeFieldA(JNIEnv *env, jclass native_interface, jint holderKind, jobject holder,
                                                         jobject newVal, jobject oldval, jstring _holderClass, jstring _fname,
                                                         jstring _type, jstring _callerClass, jstring _callerMethod, jint callerKind,
                                                         jobject caller) {
@@ -1051,9 +1049,6 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
 
   ASSERT(oldValKind != NativeInterface_SPECIAL_VAL_STATIC);
   ASSERT(newValKind != NativeInterface_SPECIAL_VAL_STATIC);
-  //handleValStatic(env, &callerKind, &caller, callerClass);
-  //handleValStatic(env, &newValKind, &newVal, NULL);
-  //handleValStatic(env, &oldValKind, &oldval, NULL);
 
   capnp::MallocMessageBuilder outermessage;
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
@@ -1069,10 +1064,8 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
   msgbuilder.setVar((int8_t)var);
   msgbuilder.setCallermethod(toStdString(env, callerMethod));
 
-  DBG("111111111");
   msgbuilder.setCallertag(getOrDoTag(env,
                                      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
-  DBG("222222222");
   msgbuilder.setThreadName(getThreadName());
 
   anybuilder.setVarstore(msgbuilder.asReader());
@@ -1097,8 +1090,6 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
       << toStdString(env, callerClass) << "::"
       << toStdString(env, callerMethod));
   ASSERT(valKind != NativeInterface_SPECIAL_VAL_STATIC);
-  //handleValStatic(env, &callerKind, &caller, callerClass);
-  //handleValStatic(env, &valKind, &val, NULL);
 
   capnp::MallocMessageBuilder outermessage;
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
@@ -1199,8 +1190,6 @@ void handleRead(JNIEnv *env, jclass native_interface,
   LOCK;
   auto threadName = getThreadName();
   DBG("Java_NativeInterface_read");
-  //handleValStatic(env, &calleeKind, &callee, calleeClass);
-  //handleValStatic(env, &callerKind, &caller, callerClass);
 
   capnp::MallocMessageBuilder outermessage;
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
@@ -1247,8 +1236,6 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
   DBG("Java_NativeInterface_loadFieldA");
   DBG("callerKind = "<<kindToStr(callerKind));
   auto threadName = getThreadName();
-  //handleValStatic(env, &holderKind, &holder, holderClass);
-  //handleValStatic(env, &callerKind, &caller, callerClass);
 
   capnp::MallocMessageBuilder outermessage;
   AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
@@ -1263,7 +1250,7 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
                            msgbuilder.asReader().getType().cStr()));
   msgbuilder.setCallermethod(callerMethod);
   msgbuilder.setCallerclass(callerClass);
-  msgbuilder.setCallertag(getTag(env, 
+  msgbuilder.setCallertag(getTag(env,
                                  callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
   msgbuilder.setThreadName(getThreadName());
 
@@ -1304,7 +1291,7 @@ void JNICALL VMObjectAlloc(jvmtiEnv *jvmti_env, JNIEnv *env, jthread threadName,
 }
 
 /*
-  Sent by the VM when a classes is being loaded into the VM
+  Sent by the VM when a class is being loaded into the VM
 
   Transforms loaded classes, if the VM is initialized and if loader!=NULL
 
@@ -1412,7 +1399,7 @@ struct FieldDescr {
 
 std::vector<FieldDescr> getFieldsForTag(jvmtiEnv *env, JNIEnv *jni, long tag) {
   auto niKlass = jni->FindClass("NativeInterface");
-  jni->ExceptionDescribe();
+  //jni->ExceptionDescribe();
   ASSERT(niKlass != NULL);
 
   jmethodID midGetFields = jni->GetStaticMethodID(niKlass, "getAllFieldsArrHelper", "(Ljava/lang/Object;)[Ljava/lang/Object;");
