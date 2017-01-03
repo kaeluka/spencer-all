@@ -174,7 +174,7 @@ public class TransformerServer {
                     errorStream.write(ex.toString().getBytes());
                     errorStream.flush();
                     errorStream.close();
-                    System.err.println("wrote error to <instrumentation_error.log>");
+                    System.err.println("wrote error to <log/"+Instrument.getClassName(recvd)+".error>");
                     //Send the uninstrumented classfile back to the instrumentation tool (it's the best we can do...):
                     sendByteArray(recvd);
 //					System.exit(1);
