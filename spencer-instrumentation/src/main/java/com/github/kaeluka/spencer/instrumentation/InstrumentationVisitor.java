@@ -720,19 +720,15 @@ class InstrumentationVisitor extends ClassVisitor implements Opcodes {
                 // STACK: .. ownerobj, newval, holderkind,
                 // holderobj, newval
                 // Object old_val:
-                if (this.getMethodName().equals("<init>")) {
-                    super.visitInsn(ACONST_NULL);
+                if (this.analyzer.stack
+                        .get(this.analyzer.stack.size() - 2) != UNINITIALIZED_THIS) {
+                    super.visitInsn(DUP2);
+                    super.visitInsn(POP);
+                    super.visitFieldInsn(GETFIELD,
+                            owner, name, desc);
                 } else {
-                    if (this.analyzer.stack
-                            .get(this.analyzer.stack.size() - 2) != UNINITIALIZED_THIS) {
-                        super.visitInsn(DUP2);
-                        super.visitInsn(POP);
-                        super.visitFieldInsn(GETFIELD,
-                                owner, name, desc);
-                    } else {
-                        throw new RuntimeException("can't instrument putfield's old_val (is `this`)");
-                        //											super.visitInsn(ACONST_NULL);
-                    }
+                    throw new RuntimeException("can't instrument putfield's old_val (is `this`)");
+                    //											super.visitInsn(ACONST_NULL);
                 }
                 // STACK: .. ownerobj, newval,
                 // SPECIAL_VAL_NORMAL, ownerobj, newval,
