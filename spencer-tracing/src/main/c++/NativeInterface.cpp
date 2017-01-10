@@ -678,8 +678,9 @@ long getTag(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
 
 std::vector<long> irregularlyTagged;
 
-long getOrDoTag(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
-  DBG("kind="<<kindToStr(objkind)<<", klass="<<klass);
+long getOrDoTagNonNull(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
+  DBG("kind="<<kindToStr(objkind)<<", klass="<<klass<<", jobj="<<jobj);
+  ASSERT(jobj != NULL || objkind == NativeInterface_SPECIAL_VAL_STATIC && "can't handle NULL references");
   jlong tag = getTag(jni, objkind, jobj, klass);
   if (tag == 0) {
     tag = doTag(g_jvmti, jobj);
@@ -694,6 +695,14 @@ long getOrDoTag(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
     ASSERT(tag != 0);
   }
   return tag;
+}
+
+long getOrDoTag(JNIEnv *jni, jint objkind, jobject jobj, std::string klass) {
+  if (jobj == NULL && objkind == NativeInterface_SPECIAL_VAL_NORMAL) {
+    return 0;
+  } else {
+    return getOrDoTagNonNull(jni, objkind, jobj, klass);
+  }
 }
 
 struct SourceLoc {
@@ -814,7 +823,7 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
     calleeTag = getClassRepTag(env, calleeClassStr);
     calleeClassStr = toStdString(env, calleeClass);
   } else {
-    calleeTag = getOrDoTag(env, calleeKind, callee, toStdString(env, calleeClass));
+    calleeTag = getOrDoTagNonNull(env, calleeKind, callee, toStdString(env, calleeClass));
   }
   DBG("callee tag = " << calleeTag);
   DBG("calleeKind = " << calleeKind);
@@ -860,28 +869,9 @@ Java_NativeInterface_methodEnter(JNIEnv *env, jclass nativeinterfacecls,
         }
         //FIXME: the caller must be the the object in the stackframe above us!
 
-        long tag = getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, arg, "java/lang/Object");
+        long tag = getOrDoTag(env, NativeInterface_SPECIAL_VAL_NORMAL, arg, "java/lang/Object");
         if (tag == 0) {
-
           const auto klass = getTypeForObj(env, arg);
-          /*
-          if (klass == "java.lang.String") {
-            //This string is a constant or was allocated before the live phase. We can initialise it.
-          } else {
-            if (klass == "java.lang.Object") {
-              std::string argStr = getToString(env, arg);
-              if (argStr.substr(0, 6) != "class ") {
-                WARN("got untagged "<<klass<<" as argument #"<<i<<": "<<argStr);
-              }
-              //printStack();
-            } else {
-              WARN("got untagged "<<klass<<" as argument #"<<i);
-              if (klass == "java.lang.reflect.Field") {
-                printStack();
-              }
-            }
-          }
-          // */
 
           tagFreshlyInitialisedObject(env, arg, getThreadName());
           tag = getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, arg, klass);
@@ -978,15 +968,13 @@ void handleStoreFieldA(JNIEnv *env, jclass native_interface, jint holderKind, jo
   DBG("Java_NativeInterface_storeFieldA "<<holderClass<<"::"<<fname);
 
   auto threadName = getThreadName();
-  long callerTag = getTag(env, callerKind, caller, callerClass);
+  long callerTag = getOrDoTagNonNull(env, callerKind, caller, callerClass);
   DBG("getting holder tag, holderKind="<<holderKind);
-  long holderTag = getOrDoTag(env, holderKind, holder, holderClass);
+  long holderTag = getOrDoTagNonNull(env, holderKind, holder, holderClass);
   DBG("getting oldval tag");
-  long oldvaltag = getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, oldval,
-                          type.c_str());
+  long oldvaltag = getOrDoTag(env, NativeInterface_SPECIAL_VAL_NORMAL, oldval, type.c_str());
   DBG("getting newval tag");
-  long newvaltag = getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, newval,
-                          type.c_str());
+  long newvaltag = getOrDoTag(env, NativeInterface_SPECIAL_VAL_NORMAL, newval, type.c_str());
   DBG("callertag ="<<callerTag);
   DBG("holdertag ="<<holderTag);
   DBG("newvaltag ="<<newvaltag);
@@ -1064,7 +1052,7 @@ Java_NativeInterface_storeVar(JNIEnv *env, jclass native_interface,
   msgbuilder.setVar((int8_t)var);
   msgbuilder.setCallermethod(toStdString(env, callerMethod));
 
-  msgbuilder.setCallertag(getOrDoTag(env,
+  msgbuilder.setCallertag(getOrDoTagNonNull(env,
                                      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
   msgbuilder.setThreadName(getThreadName());
 
@@ -1098,7 +1086,7 @@ Java_NativeInterface_loadVar(JNIEnv *env, jclass native_interface, jint valKind,
   long valTag = getTag(env, valKind, val,
                        "no/var/class/available");
   long callerTag =
-    getOrDoTag(env, callerKind, caller,
+    getOrDoTagNonNull(env, callerKind, caller,
                toStdString(env, callerClass));
   //getTag(env, NativeInterface_SPECIAL_VAL_NORMAL, caller,
   //       toStdString(env, callerClass));
@@ -1140,11 +1128,11 @@ void handleModify(JNIEnv *env, jclass native_interface,
   ReadModifyEvt::Builder msgbuilder = innermessage.initRoot<ReadModifyEvt>();
   msgbuilder.setIsModify(true);
   msgbuilder.setCalleeclass(calleeClass);
-  msgbuilder.setCalleetag(getOrDoTag(env,
+  msgbuilder.setCalleetag(getOrDoTagNonNull(env,
                                      calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr()));
   msgbuilder.setFname(fname);
   msgbuilder.setCallerclass(callerClass);
-  msgbuilder.setCallertag(getOrDoTag(env,
+  msgbuilder.setCallertag(getOrDoTagNonNull(env,
                                      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
   msgbuilder.setThreadName(getThreadName());
 
@@ -1197,11 +1185,11 @@ void handleRead(JNIEnv *env, jclass native_interface,
   ReadModifyEvt::Builder msgbuilder = innermessage.initRoot<ReadModifyEvt>();
   msgbuilder.setIsModify(false);
   msgbuilder.setCalleeclass(calleeClass);
-  msgbuilder.setCalleetag(getOrDoTag(env,
+  msgbuilder.setCalleetag(getOrDoTagNonNull(env,
                                      calleeKind, callee, msgbuilder.asReader().getCalleeclass().cStr()));
   msgbuilder.setFname(fname);
   msgbuilder.setCallerclass(callerClass);
-  msgbuilder.setCallertag(getOrDoTag(env,
+  msgbuilder.setCallertag(getOrDoTagNonNull(env,
                                      callerKind, caller, msgbuilder.asReader().getCallerclass().cStr()));
   msgbuilder.setThreadName(getThreadName());
 
@@ -1242,7 +1230,7 @@ void handleLoadFieldA(JNIEnv *env, jclass native_interface,
   capnp::MallocMessageBuilder innermessage;
   FieldLoadEvt::Builder msgbuilder = innermessage.initRoot<FieldLoadEvt>();
   msgbuilder.setHolderclass(holderClass);
-  msgbuilder.setHoldertag(getOrDoTag(env,
+  msgbuilder.setHoldertag(getOrDoTagNonNull(env,
                                      holderKind, holder, msgbuilder.asReader().getHolderclass().cStr()));
   msgbuilder.setFname(fname);
   msgbuilder.setType(type);
@@ -1541,55 +1529,6 @@ void JNICALL VMInit(jvmtiEnv *env, JNIEnv *jni, jthread threadName) {
   }
 
   g_init = true;
-
-  {
-    /*
-    // tag objects that have gotten a tag due to use of getOrDoTag
-    //FIXME: this will not get objects that were, for instance, allocated during native code
-    for (auto it = irregularlyTagged.begin(); it != irregularlyTagged.end(); ++it) {
-      auto typ = getTypeForTag(jni, *it);
-      DBG("actual type for obj #"<<*it<<" is "<< typ);
-      {
-        capnp::MallocMessageBuilder outermessage;
-        AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
-        capnp::MallocMessageBuilder innermessage;
-        MethodEnterEvt::Builder msgbuilder =
-          innermessage.initRoot<MethodEnterEvt>();
-        msgbuilder.setName("<init>");
-        msgbuilder.setSignature("(<unknown>)V");
-        msgbuilder.setCalleeclass(typ);
-        msgbuilder.setCalleetag(*it);
-        msgbuilder.setCallsitefile("<missed callsite>");
-        msgbuilder.setCallsiteline(-1);
-        msgbuilder.setThreadName("<unknown thread>");
-
-        anybuilder.setMethodenter(msgbuilder.asReader());
-
-        if (traceToDisk) {
-          capnp::writeMessageToFd(capnproto_fd, outermessage);
-        }
-      }
-
-      {
-        capnp::MallocMessageBuilder outermessage;
-        AnyEvt::Builder anybuilder = outermessage.initRoot<AnyEvt>();
-        capnp::MallocMessageBuilder innermessage;
-        MethodExitEvt::Builder msgbuilder = innermessage.initRoot<MethodExitEvt>();
-        //           "java/lang/Thread", thread, g_jvmti, g_lock);
-        msgbuilder.setThreadName("<unknown thread>");
-        msgbuilder.setName("<init>");
-        msgbuilder.setCname(typ);
-        ASSERT(std::string("") != msgbuilder.getName().cStr());
-        anybuilder.setMethodexit(msgbuilder.asReader());
-
-        if (traceToDisk) {
-          capnp::writeMessageToFd(capnproto_fd, outermessage);
-        }
-
-      }
-    }
-    */
-  }
 
   {
     // redefine classes that we could not transform during the primordial

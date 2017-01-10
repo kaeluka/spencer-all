@@ -310,12 +310,12 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   def insertUse(caller: Long, callee: Long, method: String, kind: String, name: String, idx: Long, thread: String, comment: String = "none") {
-    assert(caller != 0, s"caller must not be 0: $comment")
-    assert(callee != 0, s"callee must not be 0: $comment")
-    assert(method != null && method.length > 0, "method name must be given")
-    assert(kind != null   && kind.equals("fieldstore") || kind.equals("fieldload") ||kind.equals("varload") ||  kind.equals("varstore") || kind.equals("read") || kind.equals("modify"), s"kind must be 'varstore/load' or 'fieldstore/load' or 'read' or 'modify', but is $kind")
+    assert(caller != 0, s"#$idx: caller must not be 0: $comment")
+    assert(callee != 0, s"#$idx: callee must not be 0: $comment")
+    assert(method != null && method.length > 0, "#$idx: method name must be given")
+    assert(kind != null   && kind.equals("fieldstore") || kind.equals("fieldload") ||kind.equals("varload") ||  kind.equals("varstore") || kind.equals("read") || kind.equals("modify"), s"#$idx: kind must be 'varstore/load' or 'fieldstore/load' or 'read' or 'modify', but is $kind")
     assert(idx > 0)
-    assert(thread != null && thread.length > 0, "thread name must be given")
+    assert(thread != null && thread.length > 0, "#$idx: thread name must be given")
 
     this.insertUseStatement.clearParameters()
     this.insertUseStatement.setLong  (1, caller)
@@ -349,10 +349,10 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       case e:Throwable => {
         println(s"didn't find cached frame for $name (${e.getMessage}")
         ret = f()
-        println(s"caching: $name")
         assert(ret != null, "need result!")
         assert(ret.write != null )
         assert(ret.write.mode(SaveMode.Ignore) != null )
+        println(s"caching: $name: ${ret.count()} records")
         ret.write.mode(SaveMode.Ignore).jdbc(s"jdbc:postgresql:$dbname", name, new java.util.Properties())
       }
     }

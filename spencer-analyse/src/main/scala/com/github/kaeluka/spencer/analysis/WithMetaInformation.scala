@@ -11,8 +11,7 @@ case class ObjWithMeta(oid: VertexId,
                        allocationSite: Option[String],
                        firstUsage: Long,
                        lastUsage: Long,
-                       thread: Option[String],
-                       connectedComponent: Long)
+                       thread: Option[String])
 
 case class ConnectedComponent() extends VertexIdAnalyser {
   def analyse(implicit g: SpencerDB): DataFrame = {
@@ -28,14 +27,11 @@ case class ConnectedComponent() extends VertexIdAnalyser {
 
     data.show(10)
 
-    data.filter($"connectedComponent" ===  -12326).show(10000)
-
     data
   }
 
   override def explanation(): String = "are connected"
 }
-
 
 case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[ObjWithMeta]] {
 
@@ -49,10 +45,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
     val frame = g.selectFrame("objects", "SELECT id, klass, allocationsitefile, allocationsiteline, firstusage, lastusage, thread " +
       "FROM objects")
 
-    val connectedComponents: DataFrame = ConnectedComponent().snapshotted().analyse
-
     val ret =frame
-      .join(connectedComponents, Seq("id"), "outer")
       .rdd
       .map(row =>
         ObjWithMeta(
@@ -65,9 +58,8 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
             .filter(! _.contains("<")),
           firstUsage = row.getAs[Long]("firstusage"),
           lastUsage = row.getAs[Long]("lastusage"),
-          thread = Option(row.getAs[String]("thread")),
-          connectedComponent = row.getAs[Long]("connectedComponent")
-        ))
+          thread = Option(row.getAs[String]("thread")))
+        )
     println("gotten meta info!")
     ret
   }
@@ -83,8 +75,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
       "allocationSite"     -> "categorical",
       "firstUsage"         -> "numerical",
       "lastUsage"          -> "numerical",
-      "thread"             -> "categorical",
-      "connectedComponent" -> "categorical"
+      "thread"             -> "categorical"
     )
   }
 

@@ -109,7 +109,7 @@ case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
     import g.sqlContext.implicits._
-    AgeOfNeighbours().analyse
+    AgeOfNeighbours().snapshotted().analyse
       .groupBy("id", "firstUsage")
       .agg(min($"calleeFirstUsage"), $"firstUsage")
       .where($"min(calleeFirstUsage)" > $"firstUsage").select("id") union TinyObj().snapshotted().analyse
@@ -129,7 +129,7 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     import g.sqlContext.implicits._
 //    AgeOfNeighbours().snapshotted().analyse.show()
-    AgeOfNeighbours().analyse
+    AgeOfNeighbours().snapshotted().analyse
       .groupBy("id", "firstUsage")
       .agg(max($"calleeFirstUsage"), $"firstUsage")
       .where($"max(calleeFirstUsage)" < $"firstUsage").select("id") union TinyObj().snapshotted().analyse
@@ -184,10 +184,17 @@ case class MutableObj() extends VertexIdAnalyser {
 case class ImmutableObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    val objects = Obj().analyse.select("id")
+    print("ImmutableObj: analyse Obj..")
+    val objects = Obj().snapshotted().analyse.select("id")
+    println("done")
 
-    val immutableIDs = objects.except(MutableObj().analyse.select("id"))
-    objects.join(immutableIDs, usingColumn = "id").distinct()
+    print("ImmutableObj: analyse MutableObj.. analyse Obj().except..")
+    val immutableIDs = objects.except(MutableObj().snapshotted().analyse.select("id"))
+    println("done")
+    print("ImmutableObj: join..")
+    val res = objects.join(immutableIDs, usingColumn = "id")
+    println("done")
+    res
   }
 
   override def explanation(): String = "are never changed outside their constructor"
@@ -223,7 +230,7 @@ case class StationaryObj() extends VertexIdAnalyser {
       })
       .map(_._1)
 
-    Obj().analyse.select("id").as[Long].rdd.subtract(writeAfterRead).toDF.withColumnRenamed("value", "id")
+    Obj().snapshotted().analyse.select("id").as[Long].rdd.subtract(writeAfterRead).toDF.withColumnRenamed("value", "id")
   }
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
@@ -255,7 +262,7 @@ case class StationaryObj() extends VertexIdAnalyser {
     val joined = firstReads.join(lastWrites, "callee").withColumnRenamed("callee", "id")
     val writeAfterRead = joined.filter($"lastWrite" > $"firstRead")
 
-    Obj().analyse.select("id").join(writeAfterRead, List("id"), "left_anti")
+    Obj().snapshotted().analyse.select("id").join(writeAfterRead, List("id"), "left_anti")
   }
 
   override def explanation(): String = "are never changed after being read from for the first time"
@@ -299,7 +306,7 @@ case class InstanceOfClass(klassName: String) extends VertexIdAnalyser {
 
 case class IsNot(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    Obj().analyse.join(inner.analyse, List("id"), "left_anti")
+    Obj().snapshotted().analyse.join(inner.analyse, List("id"), "left_anti")
   }
 
   override def explanation(): String = "not "+inner.explanation()
@@ -414,7 +421,7 @@ case class ConnectedWith(roots: VertexIdAnalyser
 case class TinyObj() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     val withRefTypeFields = g.selectFrame("refs", "SELECT DISTINCT caller FROM refs WHERE kind = 'field'").withColumnRenamed("caller", "id")
-    Obj().analyse.join(withRefTypeFields, List("id"), "left_anti")
+    Obj().snapshotted().analyse.join(withRefTypeFields, List("id"), "left_anti")
   }
 
   override def explanation(): String = "do not have or do not use reference type fields"
