@@ -202,7 +202,9 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           thread = varstore.getThreadName.toString,
           comment = if (saveOrigin) EventsUtil.messageToString(evt) else "")
         if (! stacks.peek(varstore.getThreadName.toString).map(_.enter.getCalleetag).contains(varstore.getCallertag) ) {
-          println(s"at $idx: ${stacks.peek(varstore.getThreadName.toString)}: varstore is ${EventsUtil.varStoreToString(varstore)}")
+          println(s"""at $idx: last enter's callee tag and varstore's caller tag do not match:
+                     |enter   : ${stacks.peek(varstore.getThreadName.toString)}
+                     |varstore: ${EventsUtil.varStoreToString(varstore)}""".stripMargin)
         }
 
         //step 2: set close old reference (if there was one):
@@ -739,8 +741,57 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     if (this.insertUseBatchSize > 0) {
       this.insertUseStatement.executeBatch()
     }
+    val watch: Stopwatch = Stopwatch.createStarted()
+
+    print("sorting constructor calls...")
     sortConstructorCalls()
+    println(s" done after ${watch.stop()}")
+    watch.reset().start()
+
+    print("computing edge ends...")
     computeEdgeEnds()
+    println(s" done after ${watch.stop()}")
+    watch.reset().start()
+
+    print("computing last object usages...")
+    computeLastObjUsages()
+    println(s" done after ${watch.stop()}")
+    watch.reset().start()
+
+    /*
+    generatePerClassObjectsTable()
+    */
+    this.shutdown()
+  }
+
+  def connect(): Unit = {
+    this.connect_(false)
+  }
+
+  def connect_(overwrite: Boolean = false): Unit = {
+
+    if (overwrite) {
+      createFreshTables(this.dbname)
+    }
+
+    initPreparedStatements(this.dbname)
+    /*
+    generatePerClassObjectsTable()
+    */
+    this.shutdown()
+  }
+
+  def connect(): Unit = {
+    this.connect_(false)
+  }
+
+  def connect_(overwrite: Boolean = false): Unit = {
+
+    if (overwrite) {
+      createFreshTables(this.dbname)
+    }
+
+    initPreparedStatements(this.dbname)
     computeLastObjUsages()
     /*
     generatePerClassObjectsTable()
@@ -839,6 +890,10 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  comment text,
         |  PRIMARY KEY(caller, callee, idx))
       """.stripMargin)
+
+    //speeds up queries involving "name != '<init>'" and the like:
+    this.conn.createStatement().execute(
+      "CREATE INDEX uses_name_idx ON uses(name)")
 
     this.conn.createStatement().execute(
       """CREATE TABLE classdumps (
