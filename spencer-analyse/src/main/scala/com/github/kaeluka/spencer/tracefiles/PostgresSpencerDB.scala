@@ -741,58 +741,24 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     if (this.insertUseBatchSize > 0) {
       this.insertUseStatement.executeBatch()
     }
-    val watch: Stopwatch = Stopwatch.createStarted()
-
-    print("sorting constructor calls...")
+    val watch = Stopwatch.createStarted()
+    print("sorting constructor calls... ")
     sortConstructorCalls()
-    println(s" done after ${watch.stop()}")
+    println(s"done after ${watch.stop()}")
+
     watch.reset().start()
 
-    print("computing edge ends...")
+    print("computing edge ends... ")
     computeEdgeEnds()
-    println(s" done after ${watch.stop()}")
+    println(s"done after ${watch.stop()}")
+
     watch.reset().start()
 
-    print("computing last object usages...")
+    print("computing last obj usages... ")
     computeLastObjUsages()
-    println(s" done after ${watch.stop()}")
+    println(s"done after ${watch.stop()}")
+
     watch.reset().start()
-
-    /*
-    generatePerClassObjectsTable()
-    */
-    this.shutdown()
-  }
-
-  def connect(): Unit = {
-    this.connect_(false)
-  }
-
-  def connect_(overwrite: Boolean = false): Unit = {
-
-    if (overwrite) {
-      createFreshTables(this.dbname)
-    }
-
-    initPreparedStatements(this.dbname)
-    /*
-    generatePerClassObjectsTable()
-    */
-    this.shutdown()
-  }
-
-  def connect(): Unit = {
-    this.connect_(false)
-  }
-
-  def connect_(overwrite: Boolean = false): Unit = {
-
-    if (overwrite) {
-      createFreshTables(this.dbname)
-    }
-
-    initPreparedStatements(this.dbname)
-    computeLastObjUsages()
     /*
     generatePerClassObjectsTable()
     */
