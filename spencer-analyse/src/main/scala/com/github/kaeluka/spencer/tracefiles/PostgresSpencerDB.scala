@@ -533,9 +533,8 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |FROM  my_calls
         |WHERE name = '<init>'""".stripMargin)
 
-    val rdd = selection.rdd
-
-
+    this.conn.createStatement().execute(
+      "CREATE INDEX calls_callstart_idx ON calls(callstart)")
 
     val watch = Stopwatch.createStarted()
     print("getting correction map (new).. ")
@@ -549,9 +548,10 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  name ='<init>'
         |GROUP BY callee
         |HAVING COUNT(*) >= 2;""".stripMargin)
+
     while (ret.next()) {
       val times = ret.getArray("startend_times").getArray.asInstanceOf[Array[java.lang.Long]]
-      println(ret.getLong("callee")+" - "+times.mkString(", "))
+      //println(ret.getLong("callee")+" - "+times.mkString(", "))
       var i = 0
       while (i < times.length/2) {
         val newStart = times(i)
