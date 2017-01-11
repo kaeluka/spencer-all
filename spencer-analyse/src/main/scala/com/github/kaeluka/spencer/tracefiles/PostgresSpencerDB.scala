@@ -527,45 +527,40 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
     val my_calls= getFrame("calls")
     my_calls.createOrReplaceTempView("my_calls")
-
     val selection = this.sqlContext.sql(
       """SELECT
         |  *
         |FROM  my_calls
         |WHERE name = '<init>'""".stripMargin)
 
-//    selection.show(10)
-
     val rdd = selection.rdd
 
-    val correctionMap = rdd
-      .groupBy(_.getAs[Long]("callee"))
-      .filter(_._2.size >= 2)
-      .map {
-        case (callee, _calls) => {
-          val calls = _calls.toArray
-          val times = calls.flatMap(call => List(
-            call.getAs[Long]("callstart"),
-            call.getAs[Long]("callend"))).sorted
-          calls.sortBy(call => -1 * call.getAs[Long]("callstart"))
-          (callee, calls.zipWithIndex.map {
-            case (call, idx) =>
-              (
-                call,
-                (call.getAs[Long]("callstart"), call.getAs[Long]("callend")) -> (times(idx), times(times.length - idx - 1)))
-          })
-        }
-      }.sortBy(x => x._1)
-      .collect()
 
-    correctionMap.foreach {
-      case (callee, corrections) =>
-        corrections.foreach {
-          case (call, ((origStart, origEnd), (newStart, newEnd))) =>
-            //FIXME: the caller must be THIS, except for the first call
-            this.conn.createStatement().execute(s"UPDATE calls SET callstart = $newStart, callend = $newEnd WHERE callstart = $origStart AND callend = $origEnd")
-        }
+
+    val watch = Stopwatch.createStarted()
+    print("getting correction map (new).. ")
+    val ret = this.conn.createStatement().executeQuery(
+      """SELECT
+        |  callee,
+        |  (array_agg(callstart ORDER BY callstart) || array_agg(callend ORDER BY callend)) as startend_times
+        |FROM
+        |  calls
+        |WHERE
+        |  name ='<init>'
+        |GROUP BY callee
+        |HAVING COUNT(*) >= 2;""".stripMargin)
+    while (ret.next()) {
+      val times = ret.getArray("startend_times").getArray.asInstanceOf[Array[java.lang.Long]]
+      println(ret.getLong("callee")+" - "+times.mkString(", "))
+      var i = 0
+      while (i < times.length/2) {
+        val newStart = times(i)
+        val newEnd = times(times.length - i - 1)
+        this.conn.createStatement().execute(s"UPDATE calls SET callend = $newEnd WHERE callstart = $newStart")
+        i += 1
+      }
     }
+    println(s" done (${watch.stop()})")
   }
 
   def computeEdgeEnds(): Unit = {
@@ -685,14 +680,14 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
     val segments = for (i <- 0 until relPath.getNameCount) yield relPath.getName(i)
     val className = segments.mkString(".").replace(".class", "")
-    print(s"storing class $className...")
+//    print(s"storing class $className...")
     val fileStream = new FileInputStream(file)
 
     val stat = this.conn.prepareStatement("INSERT INTO classdumps VALUES (?, ?)")
     stat.setString(1, className)
     stat.setBinaryStream(2, fileStream)
     stat.execute()
-    println("done")
+//    println("done")
   }
 
   def loadBytecodeDir(logDir: Path) = {
