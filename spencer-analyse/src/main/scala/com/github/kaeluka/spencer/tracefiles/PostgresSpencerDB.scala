@@ -524,21 +524,11 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     * #60 exit(<init>)    // C constructor
     */
   def sortConstructorCalls(): Unit = {
-
-    val my_calls= getFrame("calls")
-    my_calls.createOrReplaceTempView("my_calls")
-    val selection = this.sqlContext.sql(
-      """SELECT
-        |  *
-        |FROM  my_calls
-        |WHERE name = '<init>'""".stripMargin)
-
-    val rdd = selection.rdd
-
-
+    this.conn.createStatement().execute("CREATE INDEX uses_name_idx ON uses(name)")
 
     val watch = Stopwatch.createStarted()
     print("getting correction map (new).. ")
+    //first reorder the calls to this:
     val ret = this.conn.createStatement().executeQuery(
       """SELECT
         |  callee,
@@ -550,13 +540,16 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |GROUP BY callee
         |HAVING COUNT(*) >= 2;""".stripMargin)
     while (ret.next()) {
+      // In the example above, times will be: [10,      30,      50,      20,     40,     60]
+      //                                       A enter, B enter, C enter, A exit, B exit, C exit
+      // We now want to reorder the first half!
       val times = ret.getArray("startend_times").getArray.asInstanceOf[Array[java.lang.Long]]
       println(ret.getLong("callee")+" - "+times.mkString(", "))
       var i = 0
       while (i < times.length/2) {
-        val newStart = times(i)
-        val newEnd = times(times.length - i - 1)
-        this.conn.createStatement().execute(s"UPDATE calls SET callend = $newEnd WHERE callstart = $newStart")
+        val oldStart = times(times.length/2 - 1 - i) // 50, 30, 10
+        val newStart = times(i)                      // 10, 30, 50
+        this.conn.createStatement().execute(s"UPDATE calls SET callstart = $newStart WHERE callstart = $oldStart")
         i += 1
       }
     }
@@ -564,7 +557,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   def computeEdgeEnds(): Unit = {
-
     val my_refs = this.getFrame("refs")
     my_refs.createOrReplaceTempView("my_refs")
 
@@ -572,8 +564,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       """SELECT *
         |FROM my_refs
         |WHERE kind = 'field'""".stripMargin)
-
-    df.show(10)
 
     val rdd = df.rdd
 
@@ -600,7 +590,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       }
     }
     println(cnt + " assignments")
-    this.sqlContext.sql("SELECT * FROM my_refs").show(10)
   }
 
   def computeLastObjUsages(): Unit = {
