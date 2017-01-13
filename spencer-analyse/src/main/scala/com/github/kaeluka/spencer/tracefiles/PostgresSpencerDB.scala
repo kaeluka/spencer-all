@@ -698,7 +698,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
     val events = TraceFiles.fromPath(path).iterator
     var i : Long = 1
-    while (i < 100000 && events.hasNext) {
+    while (events.hasNext) {
       val evt: AnyEvt.Reader = events.next
 
       if (evt.which() == AnyEvt.Which.LATEINIT) {
