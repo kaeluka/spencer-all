@@ -11,7 +11,10 @@ case class ObjWithMeta(oid: VertexId,
                        allocationSite: Option[String],
                        firstUsage: Long,
                        lastUsage: Long,
-                       thread: Option[String])
+                       thread: Option[String],
+                       numFieldWrites: Long,
+                       numFieldReads: Long,
+                       numCalls: Long)
 
 case class ConnectedComponent() extends VertexIdAnalyser {
   def analyse(implicit g: SpencerDB): DataFrame = {
@@ -58,7 +61,11 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
             .filter(! _.contains("<")),
           firstUsage = row.getAs[Long]("firstusage"),
           lastUsage = row.getAs[Long]("lastusage"),
-          thread = Option(row.getAs[String]("thread")))
+          thread = Option(row.getAs[String]("thread")),
+          numFieldWrites = (Math.random()*1000).asInstanceOf[Long],
+          numFieldReads = (Math.random()*1000).asInstanceOf[Long],
+          numCalls = (Math.random()*1000).asInstanceOf[Long]
+          )
         )
     println("gotten meta info!")
     ret
@@ -75,7 +82,10 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
       "allocationSite"     -> "categorical",
       "firstUsage"         -> "numerical",
       "lastUsage"          -> "numerical",
-      "thread"             -> "categorical"
+      "thread"             -> "categorical",
+      "numFieldWrites"     -> "numerical",
+      "numFieldReads"      -> "numerical",
+      "numCalls"           -> "numerical"
     )
   }
 
