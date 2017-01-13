@@ -513,15 +513,12 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     * #50 call(<init>,12) // C constructor
     * #60 exit(<init>)    // C constructor
     *
-    * Then this method will simply update the start and end times of these calls
+    * Then this method will simply update the start and end times of the first
+    * call to span all constructor calls and delete the others
     * to be:
     *
-    * #10 call(<init>,12) // C constructor
-    * #20 call(<init>,12) // B constructor
-    * #30 call(<init>,12) // A constructor
-    * #40 exit(<init>)    // A constructor
-    * #50 exit(<init>)    // B constructor
-    * #60 exit(<init>)    // C constructor
+    * #10 call(<init>,12) // A,B,C constructor
+    * #60 exit(<init>)    // A,B,C constructor
     */
   def sortConstructorCalls(): Unit = {
     this.conn.createStatement().execute("CREATE INDEX calls_callstart_idx ON calls(callstart)")
@@ -543,14 +540,13 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     while (ret.next()) {
       // In the example above, times will be: [10,      30,      50,      20,     40,     60]
       //                                       A enter, B enter, C enter, A exit, B exit, C exit
-      // We now want to reorder the first half!
-      val times = ret.getArray("startend_times").getArray.asInstanceOf[Array[java.lang.Long]]
-      //println(ret.getLong("callee")+" - "+times.mkString(", "))
-      var i = 0
+      val times = ret
+        .getArray("startend_times").getArray.asInstanceOf[Array[java.lang.Long]]
+      println(ret.getLong("callee")+" - "+times.mkString(", "))
+      this.conn.createStatement().execute(s"UPDATE calls SET callstart = ${times(0)} WHERE callend = ${times.last}")
+      var i = 1
       while (i < times.length/2) {
-        val oldStart = times(times.length/2 - 1 - i) // 50, 30, 10
-        val newStart = times(i)                      // 10, 30, 50
-        this.conn.createStatement().execute(s"UPDATE calls SET callstart = $newStart WHERE callstart = $oldStart")
+        this.conn.createStatement().execute(s"DELETE FROM calls WHERE callend = ${times(times.length - 1 - i)}")
         i += 1
       }
     }
@@ -702,7 +698,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
     val events = TraceFiles.fromPath(path).iterator
     var i : Long = 1
-    while (events.hasNext) {
+    while (i < 100000 && events.hasNext) {
       val evt: AnyEvt.Reader = events.next
 
       if (evt.which() == AnyEvt.Which.LATEINIT) {
