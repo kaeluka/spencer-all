@@ -165,8 +165,6 @@ case class AgeOfNeighbours() extends VertexIdAnalyser {
 case class MutableObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    val objects = Obj().analyse
-
     g.selectFrame("uses",
         """SELECT DISTINCT callee
           |FROM uses
