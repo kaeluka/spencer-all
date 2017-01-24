@@ -46,11 +46,16 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
   var insertUseStatement : java.sql.PreparedStatement = _
   var insertUseBatchSize = 0
+
   var insertEdgeStatement : java.sql.PreparedStatement = _
-  var insertEdgeOpenStatement : java.sql.PreparedStatement = _
+  var insertEdgeBatchSize = 0
+
   var finishEdgeStatement : java.sql.PreparedStatement = _
   var finishEdgeBatchSize = 0
+
   var insertCallStatement : java.sql.PreparedStatement = _
+  var insertCallBatchSize = 0
+
   var insertObjectStatement : java.sql.PreparedStatement = _
   val saveOrigin = dbname.equals("test")
 
@@ -257,15 +262,13 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertCallStatement.setString(7, callSiteFile)
     this.insertCallStatement.setLong  (8, callSiteLine)
     this.insertCallStatement.setString(9, comment)
-    this.insertCallStatement.execute()
-//  "INSERT INTO ${this.dbname}.calls(caller, callee, name, start, end, thread, callsitefile, callsiteline, comment) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);")
-//    session.executeAsync(this.insertCallStatement.bind(
-//      caller : java.lang.Long, callee : java.lang.Long,
-//      name,
-//      start : java.lang.Long, end : java.lang.Long,
-//      thread,
-//      callSiteFile, callSiteLine : java.lang.Long,
-//      comment))
+    this.insertCallBatchSize += 1
+    if (insertCallBatchSize > 10000) {
+      this.insertCallStatement.executeBatch()
+      this.conn.commit()
+      this.insertCallStatement.clearBatch()
+      this.insertCallBatchSize = 0
+    }
   }
 
   def insertObject(tag: Long, klass: String, allocationsitefile: String, allocationsiteline: Long, thread: String, comment: String = "none") {
@@ -299,7 +302,13 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertEdgeStatement.setString(5, thread)
     this.insertEdgeStatement.setLong  (6, start)
     this.insertEdgeStatement.setString(7, if (saveOrigin) comment else "")
-    this.insertEdgeStatement.execute()
+    this.insertEdgeBatchSize += 1
+    if (insertEdgeBatchSize > 10000) {
+      this.insertEdgeStatement.executeBatch()
+      this.conn.commit()
+      this.insertEdgeStatement.clearBatch()
+      this.insertEdgeBatchSize = 0
+    }
   }
 
   def closeEdge(holder: Long, kind: String, start: Long, end: Long) {
@@ -747,10 +756,17 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     }
     println("loading "+(i-1)+" events took "+stopwatch.stop())
 
+    if (this.insertEdgeBatchSize > 0) {
+      this.insertEdgeStatement.executeBatch()
+    }
+    if (this.finishEdgeBatchSize > 0) {
+      this.finishEdgeStatement.executeBatch()
+    }
     if (this.insertUseBatchSize > 0) {
       this.insertUseStatement.executeBatch()
-      this.conn.commit()
     }
+    this.conn.commit()
+
     createIndices()
     watch = Stopwatch.createStarted()
     print("sorting constructor calls... ")
