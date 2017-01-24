@@ -364,6 +364,62 @@ case class Const(value: DataFrame) extends VertexIdAnalyser {
   override def explanation(): String = "constant set "+value.toString
 }
 
+case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    val roots = inner.analyse
+    g
+      .selectFrame("refs", "SELECT caller, callee FROM refs WHERE kind = 'field'")
+      .withColumnRenamed("callee", "id")
+      .join(roots, List("id"), "leftsemi")
+      .select("caller")
+      .withColumnRenamed("caller", "id")
+  }
+
+  override def explanation(): String = "are field-referring to objects that "+inner.explanation()
+}
+
+case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    val roots = inner.analyse
+    g
+      .selectFrame("refs", "SELECT caller, callee FROM refs")
+      .withColumnRenamed("callee", "id")
+      .join(roots, List("id"), "leftsemi")
+      .select("caller")
+      .withColumnRenamed("caller", "id")
+  }
+
+  override def explanation(): String = "are referring to objects that "+inner.explanation()
+}
+
+case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    val roots = inner.analyse
+    g
+      .selectFrame("refs", "SELECT caller, callee FROM refs WHERE kind = 'field'")
+      .withColumnRenamed("caller", "id")
+      .join(roots, List("id"), "leftsemi")
+      .select("callee")
+      .withColumnRenamed("callee", "id")
+  }
+
+  override def explanation(): String = "are heap-referred to from objects that "+inner.explanation()
+}
+
+case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    val roots = inner.analyse
+    g
+      .selectFrame("refs", "SELECT caller, callee FROM refs")
+      .withColumnRenamed("caller", "id")
+      .join(roots, List("id"), "leftsemi")
+      .select("callee")
+      .withColumnRenamed("callee", "id")
+  }
+
+  override def explanation(): String = "are referred to from objects that "+inner.explanation()
+}
+
 case class ConnectedWith(roots: VertexIdAnalyser
                          , reverse : Boolean = false
                          , edgeFilter : Option[EdgeKind => Boolean] = None) extends VertexIdAnalyser {

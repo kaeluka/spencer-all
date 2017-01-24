@@ -45,8 +45,8 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
     println("getting meta info")
     println("WARNING: GETTING ALL META INFO! USE JOINS!")
 
-    val frame = g.selectFrame("objects", "SELECT id, klass, allocationsitefile, allocationsiteline, firstusage, lastusage, thread " +
-      "FROM objects")
+    val frame = g.selectFrame("objects",
+      "SELECT id, klass, allocationsitefile, allocationsiteline, firstusage, lastusage, thread FROM objects")
 
     val ret =frame
       .rdd

@@ -522,6 +522,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     */
   def sortConstructorCalls(): Unit = {
     this.conn.createStatement().execute("CREATE INDEX calls_callstart_idx ON calls(callstart)")
+    this.conn.createStatement().execute("CREATE INDEX calls_callend_idx ON calls(callend)")
 
     val watch = Stopwatch.createStarted()
     print("getting correction map (new).. ")
