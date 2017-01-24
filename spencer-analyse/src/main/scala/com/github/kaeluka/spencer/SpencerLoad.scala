@@ -2,15 +2,12 @@ package com.github.kaeluka.spencer
 
 import java.nio.file.Paths
 
-import com.github.kaeluka.spencer.tracefiles.CassandraSpencerDB
-
 object SpencerLoad {
 
 //  val defaultTracefile = "/Volumes/MyBook/tracefiles/pmd.small/tracefile"
 //  val defaultTracefile = "/tmp/tracefile"
 //  val defaultTracefile = "/tmp/tracefile.zip"
   val defaultTracefile = "/Users/stebr742/code/kaeluka/spencer-playground/tracefile"
-
 
   def main(args: Array[String]) {
     println(args.mkString(", "))
@@ -20,10 +17,7 @@ object SpencerLoad {
       .map(_.replace("name=", ""))
       .getOrElse("test")
 
-
     val rest = args.filter(!_.contains("="))
-
-//    println((SpencerLoad.getClass().getClassLoader()).asInstanceOf[URLClassLoader].getURLs.mkString(",\n"))
 
     val path =
       if (rest.length != 1) {

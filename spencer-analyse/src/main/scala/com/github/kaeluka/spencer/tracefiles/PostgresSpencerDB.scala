@@ -4,6 +4,7 @@ import java.io._
 import java.nio.file.{Path, Paths}
 import java.sql.{Connection, DriverManager}
 import java.util.EmptyStackException
+import java.util.concurrent.TimeUnit
 
 import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
 import com.github.kaeluka.spencer.analysis._
@@ -44,10 +45,11 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   var insertUseStatement : java.sql.PreparedStatement = _
-  var insertUseBatchSize = 0;
+  var insertUseBatchSize = 0
   var insertEdgeStatement : java.sql.PreparedStatement = _
   var insertEdgeOpenStatement : java.sql.PreparedStatement = _
   var finishEdgeStatement : java.sql.PreparedStatement = _
+  var finishEdgeBatchSize = 0
   var insertCallStatement : java.sql.PreparedStatement = _
   var insertObjectStatement : java.sql.PreparedStatement = _
   val saveOrigin = dbname.equals("test")
@@ -309,6 +311,13 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.finishEdgeStatement.setLong  (3, start)
     this.finishEdgeStatement.setLong  (4, holder)
     this.finishEdgeStatement.execute()
+    this.finishEdgeBatchSize += 1
+    if (finishEdgeBatchSize > 10000) {
+      this.finishEdgeStatement.executeBatch()
+      this.conn.commit()
+      this.finishEdgeStatement.clearBatch()
+      this.finishEdgeBatchSize = 0
+    }
   }
 
   def insertUse(caller: Long, callee: Long, method: String, kind: String, name: String, idx: Long, thread: String, comment: String = "none") {
@@ -332,6 +341,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertUseBatchSize+=1
     if (insertUseBatchSize > 10000) {
       this.insertUseStatement.executeBatch()
+      this.conn.commit()
       this.insertUseStatement.clearBatch()
       this.insertUseBatchSize = 0
     }
@@ -495,6 +505,18 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 //          .forall(!_.contains("late initialisation")))
 //  }
 
+  def createIndices(): Unit = {
+    this.conn.createStatement().execute(
+      "CREATE INDEX calls_callstart_idx ON calls(callstart)")
+
+    this.conn.createStatement().execute(
+      "CREATE INDEX calls_callend_idx ON calls(callend)")
+
+    this.conn.createStatement().execute(
+      "CREATE INDEX uses_name_idx ON uses(name)")
+
+  }
+
   /**
     * The instrumentation is limited in what byte code it can generate, due to
     * semantics of Java bytecode. This limits how constructor calls can be
@@ -521,9 +543,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     * #60 exit(<init>)    // A,B,C constructor
     */
   def sortConstructorCalls(): Unit = {
-    this.conn.createStatement().execute("CREATE INDEX calls_callstart_idx ON calls(callstart)")
-    this.conn.createStatement().execute("CREATE INDEX calls_callend_idx ON calls(callend)")
-
     val watch = Stopwatch.createStarted()
     print("getting correction map (new).. ")
     //first reorder the calls to this:
@@ -698,32 +717,42 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.loadBytecodeDir(Paths.get(logDir.toString, "input"))
 
     val events = TraceFiles.fromPath(path).iterator
+    var watch = Stopwatch.createStarted()
+    val printBatchSize = 1e5
     var i : Long = 1
     while (events.hasNext) {
       val evt: AnyEvt.Reader = events.next
 
-      if (evt.which() == AnyEvt.Which.LATEINIT) {
-        hadLateInits = true
-      } else if (hadLateInits) {
-        doneWithHandleInits = true
-      }
+//      if (evt.which() == AnyEvt.Which.LATEINIT) {
+//        hadLateInits = true
+//      } else if (hadLateInits) {
+//        doneWithHandleInits = true
+//      }
 
-      if (doneWithHandleInits) {
         if (!Util.isTrickyThreadName(EventsUtil.getThread(evt))) {
           handleEvent(evt, i)
         }
-        if ((i-1) % 1e5 == 0) {
-          println("#" + ((i-1) / 1e6).toFloat + "e6..")
+        if ((i-1) % printBatchSize == 0) {
+          val evtsPerSec = if (i > 1) {
+            Math.round(printBatchSize*1000.0/watch.elapsed(TimeUnit.MILLISECONDS))
+          } else {
+            "-"
+          }
+          watch.reset().start()
+          println(
+            s"#${((i-1) / 1e6).toFloat}e6 " +
+            s"($evtsPerSec evts/sec)..")
         }
-      }
       i += 1
     }
     println("loading "+(i-1)+" events took "+stopwatch.stop())
 
     if (this.insertUseBatchSize > 0) {
       this.insertUseStatement.executeBatch()
+      this.conn.commit()
     }
-    val watch = Stopwatch.createStarted()
+    createIndices()
+    watch = Stopwatch.createStarted()
     print("sorting constructor calls... ")
     sortConstructorCalls()
     println(s"done after ${watch.stop()}")
@@ -739,8 +768,9 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     print("computing last obj usages... ")
     computeLastObjUsages()
     println(s"done after ${watch.stop()}")
-
     watch.reset().start()
+
+    this.conn.commit()
     /*
     generatePerClassObjectsTable()
     */
@@ -777,7 +807,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       this.conn.close()
     }
     this.conn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
-    this.conn.setAutoCommit(true)
+    this.conn.setAutoCommit(false)
   }
 
   def createFreshTables(dbname: String) {
@@ -839,16 +869,13 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  PRIMARY KEY(caller, callee, idx))
       """.stripMargin)
 
-    //speeds up queries involving "name != '<init>'" and the like:
-    this.conn.createStatement().execute(
-      "CREATE INDEX uses_name_idx ON uses(name)")
-
     this.conn.createStatement().execute(
       """CREATE TABLE classdumps (
         |  classname text,
         |  bytecode bytea,
         |  PRIMARY KEY(classname))
       """.stripMargin)
+    this.conn.commit()
   }
 
   def initPreparedStatements(keyspace: String): Unit = {

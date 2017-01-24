@@ -1,24 +1,17 @@
 package com.github.kaeluka.spencer.analysis
-import com.datastax.spark.connector.CassandraRow
-import com.datastax.spark.connector.rdd.CassandraTableScanRDD
-import com.github.kaeluka.spencer.tracefiles.CassandraSpencerDB
-import org.apache.spark._
-import org.apache.spark.rdd.RDD
+import com.github.kaeluka.spencer.PostgresSpencerDB
 import org.apache.spark.graphx._
 
 
 object SpencerGraphImplicits {
-  implicit def spencerDbToSpencerGraph(db: CassandraSpencerDB) : SpencerData = {
-    new SpencerData(db)
-  }
 
-  implicit def spencerDbToFilteredGraph(db: CassandraSpencerDB): FilteredGraph = {
-    new FilteredGraph(spencerDbToSpencerGraph(db).graph)
-  }
+//  implicit def spencerDbToFilteredGraph(db: PostgresSpencerDB): FilteredGraph = {
+//    new FilteredGraph(spencerDbToSpencerGraph(db).graph)
+//  }
 
-  implicit def spencerDbToGraph(db: CassandraSpencerDB): Graph[ObjDesc, EdgeDesc] = {
-    spencerDbToSpencerGraph(db).graph
-  }
+//  implicit def spencerDbToGraph(db: PostgresSpencerDB): Graph[ObjDesc, EdgeDesc] = {
+//    spencerDbToSpencerGraph(db).graph
+//  }
 
 //  implicit def spencerDbToFilteredGraph(db: SpencerDB) : FilteredGraph = {
 //    spencerGraphToFilteredGraph(spencerDbToSpencerGraph(db))
@@ -29,44 +22,7 @@ object SpencerGraphImplicits {
   }
 }
 
-@deprecated class SpencerData(val db: CassandraSpencerDB) {
 
-  private def initGraph: Graph[ObjDesc, EdgeDesc] = {
-    val objs = this.db.getTable("objects")
-      .map(row => (row.getLong("id"), ObjDesc(klass = row.getStringOption("klass"))))
-      .setName("object graph vertices")
-
-//    val uses = this.db.getTable("uses")
-//      .map(row => {
-//        val fr = row.getLong("idx")
-//        val to = fr + 1
-//        Edge(
-//          row.getLong("caller"),
-//          row.getLong("callee"),
-//          EdgeDesc(Some(fr), Some(to), EdgeKind.fromUsesKind(row.getString("kind")))
-//        )
-//      })
-//      .setName("object graph edges")
-    val refs = this.db.getTable("refs")
-      .map(row => {
-        val fr = row.getLongOption("refstart")
-        val to = row.getLongOption("refend")
-        Edge(
-          row.getLong("caller"),
-          row.getLong("callee"),
-          EdgeDesc(fr, to, EdgeKind.fromRefsKind(row.getString("kind"))))
-      })
-
-    val g: Graph[ObjDesc, EdgeDesc] =
-      Graph(objs, refs)
-    g.cache()
-    g
-  }
-
-  private val g = initGraph
-
-  def graph: Graph[ObjDesc, EdgeDesc] = g
-}
 
 case class ObjDesc(klass: Option[String])
 
