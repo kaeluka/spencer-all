@@ -262,6 +262,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertCallStatement.setString(7, callSiteFile)
     this.insertCallStatement.setLong  (8, callSiteLine)
     this.insertCallStatement.setString(9, comment)
+    this.insertCallStatement.addBatch()
     this.insertCallBatchSize += 1
     if (insertCallBatchSize > 10000) {
       this.insertCallStatement.executeBatch()
@@ -302,6 +303,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertEdgeStatement.setString(5, thread)
     this.insertEdgeStatement.setLong  (6, start)
     this.insertEdgeStatement.setString(7, if (saveOrigin) comment else "")
+    this.insertEdgeStatement.addBatch()
     this.insertEdgeBatchSize += 1
     if (insertEdgeBatchSize > 10000) {
       this.insertEdgeStatement.executeBatch()
@@ -319,7 +321,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.finishEdgeStatement.setString(2, kind)
     this.finishEdgeStatement.setLong  (3, start)
     this.finishEdgeStatement.setLong  (4, holder)
-    this.finishEdgeStatement.execute()
+    this.finishEdgeStatement.addBatch()
     this.finishEdgeBatchSize += 1
     if (finishEdgeBatchSize > 10000) {
       this.finishEdgeStatement.executeBatch()
@@ -583,13 +585,11 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   def computeEdgeEnds(): Unit = {
-    val my_refs = this.getFrame("refs")
-    my_refs.createOrReplaceTempView("my_refs")
-
-    val df = this.sqlContext.sql(
+    val df = this.selectFrame("refs",
       """SELECT *
-        |FROM my_refs
-        |WHERE kind = 'field'""".stripMargin)
+        |FROM refs
+        |WHERE kind = 'field'
+      """.stripMargin)
 
     val rdd = df.rdd
 
@@ -622,53 +622,47 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
     //FIXME: this could use the dataframe API for better performance
     //the first action involving an object is always its constructor call
-    val firstLastCalls = this.getFrame("calls")
-      .select("callee", "callstart", "callend")
-      .rdd
-      .groupBy(_.getAs[Long]("callee"))
-      .map {
-        case (id, calls) =>
-          (id, (calls.map(_.getAs[Long]("callstart")).min, calls.map(_.getAs[Long]("callend")).max))
-      }
+//    val firstLastCalls = this.getFrame("calls")
+//      .select("callee", "callstart", "callend")
+//      .rdd
+//      .groupBy(_.getAs[Long]("callee"))
+//      .map {
+//        case (id, calls) =>
+//          (id, (calls.map(_.getAs[Long]("callstart")).min, calls.map(_.getAs[Long]("callend")).max))
+//      }
 
-    //the last action involving an object is always a usage
-    val firstLastUsages = this.getFrame("uses").select("idx", "callee").rdd
-      .groupBy(_.getAs[Long]("callee"))
-      .map(
-        {
-          case (id, rows) =>
-            (id, (rows.map(_.getAs[Long]("idx")).min, rows.map(_.getAs[Long]("idx")).max))
-        })
-      .filter(_._1 != 0)
-
-    val joined = firstLastCalls.fullOuterJoin(firstLastUsages)
-      .map({
-        case (id, (None, Some(x))) => (id, x)
-        case (id, (Some(x), None)) => (id, x)
-        case (id, (Some((min1, max1)), Some((min2, max2)))) =>
-          (id, (Math.min(min1, min2), Math.max(max1, max2)))
-      }).collect()
-
-    assert(joined.find(_._1 == 0).isEmpty, "can not have id = 0")
-
-    for (firstLastUsage <- joined) {
-      firstLastUsage match {
-        case (id, (fst, lst)) =>
-          assert(id != 0, "id must not be 0")
-          this.conn.createStatement().execute(
-            s"""UPDATE objects
-              |SET
-              |  firstUsage = $fst,
-              |  lastUsage  = $lst
-              |WHERE id = $id""".stripMargin)
-//          this.session.execute(
-//            "  UPDATE objects " +
-//              "SET " +
-//              s"  firstUsage = ${fst}, " +
-//              s"  lastUsage  = ${lst}" +
-//              "WHERE id = " + id)
-      }
+    val firstLastUses = this.conn.createStatement().executeQuery(
+      """SELECT
+        |  callee,
+        |  min(idx) AS firstusage,
+        |  max(idx) AS lastusage
+        |FROM uses
+        |GROUP BY callee
+        |""".stripMargin)
+    while (firstLastUses.next()) {
+      val id  = firstLastUses.getLong(1) // callee
+      val fst = firstLastUses.getLong(2) // firstusage
+      val lst = firstLastUses.getLong(3) // lastusage
+      this.conn.createStatement().execute(
+        s"""UPDATE objects
+            |SET
+            |  firstUsage = $fst,
+            |  lastUsage  = $lst
+            |WHERE id = $id""".stripMargin)
     }
+
+//    for (firstLastUsage <- joined) {
+//      firstLastUsage match {
+//        case (id, (fst, lst)) =>
+//          assert(id != 0, "id must not be 0")
+//          this.conn.createStatement().execute(
+//            s"""UPDATE objects
+//              |SET
+//              |  firstUsage = $fst,
+//              |  lastUsage  = $lst
+//              |WHERE id = $id""".stripMargin)
+//      }
+//    }
   }
 
 //  def generatePerClassObjectsTable(): Unit = {
