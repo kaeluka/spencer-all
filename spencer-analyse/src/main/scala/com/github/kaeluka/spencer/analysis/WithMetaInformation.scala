@@ -45,8 +45,22 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
     println("getting meta info")
     println("WARNING: GETTING ALL META INFO! USE JOINS!")
 
+    g.getFrame("calls").createOrReplaceTempView("calls")
+    g.getFrame("uses").createOrReplaceTempView("uses")
     val frame = g.selectFrame("objects",
-      "SELECT id, klass, allocationsitefile, allocationsiteline, firstusage, lastusage, thread FROM objects")
+    """SELECT
+      |  id,
+      |  first(klass) AS klass,
+      |  first(allocationsitefile) AS allocationsitefile,
+      |  first(allocationsiteline) AS allocationsiteline,
+      |  first(firstusage) AS firstusage,
+      |  first(lastusage) AS lastusage,
+      |  COUNT(calls.callee) as numCalls,
+      |  first(objects.thread) as thread
+      |FROM objects
+      |LEFT OUTER JOIN calls ON calls.callee = objects.id
+      |GROUP by objects.id
+      |""".stripMargin)
 
     val ret =frame
       .rdd
@@ -64,7 +78,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
           thread = Option(row.getAs[String]("thread")),
           numFieldWrites = (Math.random()*1000).asInstanceOf[Long],
           numFieldReads = (Math.random()*1000).asInstanceOf[Long],
-          numCalls = (Math.random()*1000).asInstanceOf[Long]
+          numCalls = row.getAs[Long]("numCalls")
           )
         )
     println("gotten meta info!")
