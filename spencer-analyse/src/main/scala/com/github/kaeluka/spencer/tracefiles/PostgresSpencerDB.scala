@@ -41,13 +41,17 @@ object PostgresSpencerDBs extends SpencerDBs {
     val rs = ps.executeQuery()
     while (rs.next()) {
       val dbname = rs.getString(1)
-      val dbconn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
-      val meta = dbconn.getMetaData
-      val usesRes = meta.getTables(null, null, "uses", null)
-      if (usesRes.next) {
-        benchmarks = benchmarks ++ List(dbname)
+      try {
+        val dbconn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
+        val meta = dbconn.getMetaData
+        val usesRes = meta.getTables(null, null, "uses", null)
+        if (usesRes.next) {
+          benchmarks = benchmarks ++ List(dbname)
+        }
+        usesRes.close()
+      } catch {
+        case _: Throwable => ()
       }
-      usesRes.close()
     }
     rs.close()
     ps.close()
