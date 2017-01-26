@@ -14,6 +14,7 @@ import org.apache.commons.io.FileUtils
 import org.apache.spark.graphx.{Edge, Graph}
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 import org.apache.spark.{SparkConf, SparkContext}
+import org.postgresql.util.PSQLException
 
 import scala.collection.JavaConversions._
 
@@ -34,25 +35,51 @@ object PostgresSpencerDBs extends SpencerDBs {
     PostgresSpencerDBs.sc.stop()
   }
 
-  override def getAvailableBenchmarks(): Seq[String] = {
-    val conn = DriverManager.getConnection("jdbc:postgresql:?")
-    var benchmarks = List[String]()
+  override def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo] = {
+    val conn = DriverManager.getConnection("jdbc:postgresql:template1")
+    var benchmarks = List[BenchmarkMetaInfo]()
     val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
     val rs = ps.executeQuery()
     while (rs.next()) {
       val dbname = rs.getString(1)
       try {
-        if (dbname != "root") {
-          val dbconn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
-          val meta = dbconn.getMetaData
-          val usesRes = meta.getTables(null, null, "uses", null)
-          if (usesRes.next) {
-            benchmarks = benchmarks ++ List(dbname)
-          }
-          usesRes.close()
+        val dbconn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
+        val meta = dbconn.getMetaData
+        val usesRes = meta.getTables(null, null, "uses", null)
+
+        val db = new PostgresSpencerDB(dbname)
+        db.connect()
+
+        val countRes = db.conn.createStatement().executeQuery("SELECT COUNT(id) FROM objects")
+        println(s"countRes = $countRes")
+        assert(countRes.next())
+        val count = countRes.getLong(1)
+        countRes.close()
+
+        val dateRes = db.conn.createStatement().executeQuery("SELECT val FROM meta WHERE key = 'date'")
+        println(s"dateRes = $dateRes")
+        val date = if (dateRes.next()) {
+          dateRes.getString(1)
+        } else {
+          "N/A"
         }
+        dateRes.close()
+
+        val commentRes = db.conn.createStatement().executeQuery("SELECT val FROM meta WHERE key = 'comment'")
+        println(s"commentRes = $commentRes")
+        val comment = if (commentRes.next()) {
+          commentRes.getString(1)
+        } else {
+          "N/A"
+        }
+        commentRes.close()
+
+        if (usesRes.next) {
+          benchmarks = benchmarks ++ List(BenchmarkMetaInfo(dbname, count, date, comment))
+        }
+        usesRes.close()
       } catch {
-        case _: Throwable => ()
+        case e: PSQLException => ()
       }
     }
     rs.close()
@@ -62,7 +89,7 @@ object PostgresSpencerDBs extends SpencerDBs {
 }
 
 class PostgresSpencerDB(dbname: String) extends SpencerDB {
-  private var conn : Connection = _
+  var conn : Connection = _
 
   val sqlContext: SQLContext = new SQLContext(PostgresSpencerDBs.sc)
   sqlContext.setConf("keyspace", dbname)

@@ -1,5 +1,7 @@
 package com.github.kaeluka.spencer.analysis
 
+import java.util.Date
+
 import com.github.kaeluka.spencer.Events.AnyEvt
 import org.apache.spark.graphx.{Graph, VertexId}
 import org.apache.spark.sql.{DataFrame, SQLContext}
@@ -67,8 +69,10 @@ object AproposEvent {
   }
 }
 
+case class BenchmarkMetaInfo(name: String, objCount: Long, date: String, comment: String)
+
 trait SpencerDBs {
-  def getAvailableBenchmarks(): Seq[String]
+  def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo]
 }
 
 trait SpencerDB {
