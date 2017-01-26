@@ -67,7 +67,9 @@ object AproposEvent {
   }
 }
 
-
+trait SpencerDBs {
+  def getAvailableBenchmarks(): Seq[String]
+}
 
 trait SpencerDB {
   def handleEvent(evt: AnyEvt.Reader, idx: Long)

@@ -17,7 +17,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 import scala.collection.JavaConversions._
 
-object PostgresSpencerDB {
+object PostgresSpencerDBs extends SpencerDBs {
   val conf = new SparkConf()
     .setAppName("spencer-analyse")
 //    .set("spark.cassandra.connection.host", "127.0.0.1")
@@ -31,14 +31,34 @@ object PostgresSpencerDB {
   val sc : SparkContext = new SparkContext(conf)
 
   def shutdown() = {
-    PostgresSpencerDB.sc.stop()
+    PostgresSpencerDBs.sc.stop()
+  }
+
+  override def getAvailableBenchmarks(): Seq[String] = {
+    val conn = DriverManager.getConnection("jdbc:postgresql:?")
+    var benchmarks = List[String]()
+    val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
+    val rs = ps.executeQuery()
+    while (rs.next()) {
+      val dbname = rs.getString(1)
+      val dbconn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
+      val meta = dbconn.getMetaData
+      val usesRes = meta.getTables(null, null, "uses", null)
+      if (usesRes.next) {
+        benchmarks = benchmarks ++ List(dbname)
+      }
+      usesRes.close()
+    }
+    rs.close()
+    ps.close()
+    benchmarks
   }
 }
 
 class PostgresSpencerDB(dbname: String) extends SpencerDB {
   private var conn : Connection = _
 
-  val sqlContext: SQLContext = new SQLContext(PostgresSpencerDB.sc)
+  val sqlContext: SQLContext = new SQLContext(PostgresSpencerDBs.sc)
   sqlContext.setConf("keyspace", dbname)
 
   override def shutdown() = {
@@ -581,6 +601,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         i += 1
       }
     }
+    ret.close()
     println(s" done (${watch.stop()})")
   }
 
@@ -620,17 +641,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
   def computeLastObjUsages(): Unit = {
 
-    //FIXME: this could use the dataframe API for better performance
-    //the first action involving an object is always its constructor call
-//    val firstLastCalls = this.getFrame("calls")
-//      .select("callee", "callstart", "callend")
-//      .rdd
-//      .groupBy(_.getAs[Long]("callee"))
-//      .map {
-//        case (id, calls) =>
-//          (id, (calls.map(_.getAs[Long]("callstart")).min, calls.map(_.getAs[Long]("callend")).max))
-//      }
-
     val firstLastUses = this.conn.createStatement().executeQuery(
       """SELECT
         |  callee,
@@ -650,39 +660,8 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
             |  lastUsage  = $lst
             |WHERE id = $id""".stripMargin)
     }
-
-//    for (firstLastUsage <- joined) {
-//      firstLastUsage match {
-//        case (id, (fst, lst)) =>
-//          assert(id != 0, "id must not be 0")
-//          this.conn.createStatement().execute(
-//            s"""UPDATE objects
-//              |SET
-//              |  firstUsage = $fst,
-//              |  lastUsage  = $lst
-//              |WHERE id = $id""".stripMargin)
-//      }
-//    }
+    firstLastUses.close()
   }
-
-//  def generatePerClassObjectsTable(): Unit = {
-//    getFrame("objects").foreach(row => {
-//      val id = row.getAs[Long]("id").asInstanceOf[java.lang.Long]
-//      val klass = Option(row.getAs[String]("klass"))
-//      val allocationsitefile = row.getAs[String]("allocationsitefile")
-//      val allocationsiteline = row.getAs[Long]("allocationsiteline")
-//      val firstUsage = row.getLong("firstusage").asInstanceOf[java.lang.Long]
-//      val lastUsage = row.getLong("lastusage").asInstanceOf[java.lang.Long]
-//      val thread = row.getStringOption("thread").getOrElse(null)
-//      val comment = row.getStringOption("comment").getOrElse(null)
-//
-//      this.session.execute("INSERT INTO objects_per_class (" +
-//        "id, klass, allocationsitefile, allocationsiteline, firstusage, " +
-//        "lastusage, thread, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
-//        id, klass.getOrElse("<unknown class>"), allocationsitefile, allocationsiteline, firstUsage, lastUsage,
-//        thread, comment)
-//    })
-//  }
 
   def storeClassFile(logDir: Path, file: File) {
     val relPath = logDir.relativize(file.toPath)
