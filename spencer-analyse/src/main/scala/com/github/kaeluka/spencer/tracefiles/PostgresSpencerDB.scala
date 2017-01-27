@@ -40,6 +40,7 @@ object PostgresSpencerDBs extends SpencerDBs {
     var benchmarks = List[BenchmarkMetaInfo]()
     val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
     val rs = ps.executeQuery()
+    var db: PostgresSpencerDB = null
     while (rs.next()) {
       val dbname = rs.getString(1)
       try {
@@ -47,30 +48,27 @@ object PostgresSpencerDBs extends SpencerDBs {
         val meta = dbconn.getMetaData
         val usesRes = meta.getTables(null, null, "uses", null)
 
-        val db = new PostgresSpencerDB(dbname)
+        db = new PostgresSpencerDB(dbname)
         db.connect()
 
         val countRes = db.conn.createStatement().executeQuery("SELECT COUNT(id) FROM objects")
-        println(s"countRes = $countRes")
         assert(countRes.next())
         val count = countRes.getLong(1)
         countRes.close()
 
         val dateRes = db.conn.createStatement().executeQuery("SELECT val FROM meta WHERE key = 'date'")
-        println(s"dateRes = $dateRes")
         val date = if (dateRes.next()) {
           dateRes.getString(1)
         } else {
-          "N/A"
+          null
         }
         dateRes.close()
 
         val commentRes = db.conn.createStatement().executeQuery("SELECT val FROM meta WHERE key = 'comment'")
-        println(s"commentRes = $commentRes")
         val comment = if (commentRes.next()) {
           commentRes.getString(1)
         } else {
-          "N/A"
+          null
         }
         commentRes.close()
 
@@ -80,6 +78,8 @@ object PostgresSpencerDBs extends SpencerDBs {
         usesRes.close()
       } catch {
         case e: PSQLException => ()
+      } finally {
+        db.conn.close()
       }
     }
     rs.close()
