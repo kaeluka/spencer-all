@@ -3,7 +3,7 @@ package com.github.kaeluka.spencer
 import java.io._
 import java.nio.file.{Path, Paths}
 import java.sql.{Connection, DriverManager}
-import java.util.EmptyStackException
+import java.util.{Calendar, Date, EmptyStackException}
 import java.util.concurrent.TimeUnit
 
 import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
@@ -46,7 +46,6 @@ object PostgresSpencerDBs extends SpencerDBs {
       try {
         val dbconn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
         val meta = dbconn.getMetaData
-        val usesRes = meta.getTables(null, null, "uses", null)
 
         db = new PostgresSpencerDB(dbname)
         db.connect()
@@ -72,14 +71,11 @@ object PostgresSpencerDBs extends SpencerDBs {
         }
         commentRes.close()
 
-        if (usesRes.next) {
-          benchmarks = benchmarks ++ List(BenchmarkMetaInfo(dbname, count, date, comment))
-        }
-        usesRes.close()
+        benchmarks = benchmarks ++ List(BenchmarkMetaInfo(dbname, count, date, comment))
       } catch {
         case e: PSQLException => ()
       } finally {
-        db.conn.close()
+        db.shutdown()
       }
     }
     rs.close()
@@ -793,9 +789,22 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     watch.reset().start()
 
     this.conn.commit()
-    /*
-    generatePerClassObjectsTable()
-    */
+
+    this.conn.createStatement().execute(
+      "CREATE TABLE meta (key text, val text, PRIMARY KEY(key));")
+    this.conn.createStatement().execute(
+      s"""INSERT INTO meta
+          |  (key, val)
+          |VALUES
+          |  ('comment', 'loaded from $path');
+      """.stripMargin)
+    val now = Calendar.getInstance()
+    this.conn.createStatement().execute(
+      s"""INSERT INTO meta
+        |  (key, val)
+        |VALUES
+        |  ('date', '${now.get(Calendar.YEAR)}-${now.get(Calendar.MONTH)}-${now.get(Calendar.DAY_OF_MONTH)}');
+      """.stripMargin)
     this.shutdown()
   }
 
