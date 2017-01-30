@@ -732,13 +732,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     var i : Long = 1
     while (events.hasNext) {
       val evt: AnyEvt.Reader = events.next
-
-//      if (evt.which() == AnyEvt.Which.LATEINIT) {
-//        hadLateInits = true
-//      } else if (hadLateInits) {
-//        doneWithHandleInits = true
-//      }
-
         if (!Util.isTrickyThreadName(EventsUtil.getThread(evt))) {
           handleEvent(evt, i)
         }
