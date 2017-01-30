@@ -32,8 +32,8 @@ object QueryParser {
     ("-".? ~ CharIn('0' to '9')).rep(1).!.map(_.toLong)
 
   def instanceOfKlass =
-    P("InstanceOfClass("~className~")")
-   .map(InstanceOfClass)
+    (P("InstanceOf("~className~")") | P("InstanceOfClass("~className~")"))
+   .map(InstanceOf)
 
   def className: P[String] = {
     P((CharIn('a' to 'z') | CharIn('A' to 'Z') | "." | "[" | "$" | ";").rep.!)
@@ -119,7 +119,7 @@ object QueryParser {
       "StackBoundObj()",
       "AgeOrderedObj()",
       "ReverseAgeOrderedObj()",
-      "InstanceOfClass("+klass+")",
+      "InstanceOf("+klass+")",
       "AllocatedAt("+allocationSite+")",
       "Obj()"
     )

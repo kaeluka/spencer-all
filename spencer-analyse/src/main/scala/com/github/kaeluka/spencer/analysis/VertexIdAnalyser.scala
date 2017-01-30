@@ -290,7 +290,7 @@ case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser 
   override def explanation(): String = "were allocated at "+allocationSite._1+":"+allocationSite._2
 }
 
-case class InstanceOfClass(klassName: String) extends VertexIdAnalyser {
+case class InstanceOf(klassName: String) extends VertexIdAnalyser {
 
   def this(klass: Class[_]) =
     this(klass.getName)

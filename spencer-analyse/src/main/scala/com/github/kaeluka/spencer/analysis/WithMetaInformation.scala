@@ -40,7 +40,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
 
   override def analyse(implicit g: SpencerDB): RDD[ObjWithMeta] = {
     import g.sqlContext.implicits._
-    val matchingIDs = inner.analyse(g).toDF
+    val matchingIDs = inner.analyse(g)
 
     println("getting meta info")
     println("WARNING: GETTING ALL META INFO! USE JOINS!")
@@ -62,7 +62,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
       |GROUP by objects.id
       |""".stripMargin)
 
-    val ret =frame
+    val ret = frame
       .rdd
       .map(row =>
         ObjWithMeta(
