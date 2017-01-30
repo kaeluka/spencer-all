@@ -635,37 +635,36 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   def computeEdgeEnds(): Unit = {
-    val df = this.selectFrame("refs",
-      """SELECT *
-        |FROM refs
+    val res = this.conn.createStatement().executeQuery(
+      """
+        |SELECT
+        |  caller,
+        |  name,
+        |  array_agg(refstart ORDER BY refstart) AS refstarts,
+        |  array_agg(kind     ORDER BY refstart) AS refkinds
+        |FROM
+        |  refs
         |WHERE kind = 'field'
+        |GROUP BY
+        |  caller, name
       """.stripMargin)
 
-    val rdd = df.rdd
-
-    val groupedAssignments = rdd
-      .groupBy(row => (row.getAs[Long]("caller"), row.getAs[String]("name")))
-      .map({case ((caller, name), rows) =>
-        val sorted =
-          rows.toSeq.sortBy(_.getAs[Long]("refstart"))
-            .map(row =>
-              (row.getAs[Long]("refstart"), row.getAs[String]("kind"))
-            )
-        (caller, sorted)
-      })
-      .collect()
-
     var cnt = 0
-    for ((caller, assignments) <- groupedAssignments) {
-      for (i <- 0 to (assignments.size-2)) {
-        (assignments(i), assignments(i+1)) match {
-          case ((start, kind), (end, _)) =>
-            closeEdge(caller, kind, start, end)
-            cnt = cnt + 1
-        }
+    while(res.next()) {
+      val caller = res.getLong("caller")
+      val assignmentStarts = res.getArray("refstarts").getArray.asInstanceOf[Array[java.lang.Long]]
+      val assignmentKinds  = res.getArray("refkinds").getArray.asInstanceOf[Array[String]]
+      assert(assignmentStarts.length == assignmentKinds.length)
+      val N = assignmentKinds.length
+      var i = 0
+      while (i<N-1) {
+        closeEdge(caller, assignmentKinds(i), assignmentStarts(i), assignmentStarts(i+1))
+        i = i+1
+        cnt = cnt+1
       }
     }
-    println(cnt + " assignments")
+
+    println(s"closed $cnt assignments")
   }
 
   def computeLastObjUsages(): Unit = {
