@@ -791,12 +791,14 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           |  ('comment', 'loaded from $path');
       """.stripMargin)
     val now = Calendar.getInstance()
+    now.setLenient(false)
     this.conn.createStatement().execute(
       s"""INSERT INTO meta
         |  (key, val)
         |VALUES
-        |  ('date', '${now.get(Calendar.YEAR)}-${now.get(Calendar.MONTH)}-${now.get(Calendar.DAY_OF_MONTH)}');
+        |  ('date', '${now.get(Calendar.YEAR)}-${"%02d".format(now.get(Calendar.MONTH) + 1)}-${now.get(Calendar.DAY_OF_MONTH)}');
       """.stripMargin)
+    this.conn.commit()
     this.shutdown()
   }
 
