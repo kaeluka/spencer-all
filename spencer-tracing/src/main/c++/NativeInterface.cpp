@@ -1572,7 +1572,7 @@ void JNICALL VMDeath(jvmtiEnv *jvmti_env, JNIEnv *jni_env) {
   }
 
   for (auto const& it : klassReps) {
-    DODBG("klass "<<it.first<<" -> "<<it.second);
+    DBG("klass "<<it.first<<" -> "<<it.second);
   }
 #endif // ifdef ENABLED
 }
