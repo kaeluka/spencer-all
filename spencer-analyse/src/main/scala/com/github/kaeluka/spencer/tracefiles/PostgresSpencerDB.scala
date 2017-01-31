@@ -80,6 +80,7 @@ object PostgresSpencerDBs extends SpencerDBs {
     }
     rs.close()
     ps.close()
+    conn.close()
     benchmarks
   }
 }
