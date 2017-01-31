@@ -92,6 +92,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   sqlContext.setConf("keyspace", dbname)
 
   override def shutdown() = {
+    this.conn.close()
   }
 
   var insertUseStatement : java.sql.PreparedStatement = _
