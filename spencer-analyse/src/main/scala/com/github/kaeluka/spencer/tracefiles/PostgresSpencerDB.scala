@@ -409,19 +409,19 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     }
   }
 
-  override def getCachedOrDo(name: String, f: () => DataFrame): DataFrame = {
+  override def getCachedOrDo(query: String, f: () => DataFrame): DataFrame = {
+    val name = "cache_"+ toString.hashCode.toString
     val opts = Map(
       "url" -> s"jdbc:postgresql:$dbname",
       "dbtable" -> name
     )
-    var ret : DataFrame = null;
+    var ret : DataFrame = null
     try {
-      println("trying to get frame...")
       ret = getFrame(name)
       println(s"found cached frame for $name")
     } catch {
       case e:Throwable => {
-        println(s"didn't find cached frame for $name (${e.getMessage}")
+        println(s"didn't find cached frame for $name")
         ret = f()
         assert(ret != null, "need result!")
         assert(ret.write != null )

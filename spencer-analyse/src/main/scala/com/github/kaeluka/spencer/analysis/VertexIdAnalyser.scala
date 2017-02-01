@@ -83,12 +83,11 @@ case class Or_(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
 
 case class SnapshottedVertexIdAnalyser(inner : VertexIdAnalyser) extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    println(s"analysing snapshotted ${this.toString}, inner class: ${inner.getClass.getName}")
     assert(! inner.isInstanceOf[SnapshottedVertexIdAnalyser])
-    val tblName = ("cache_"+ inner.toString.hashCode.toString+"_"+inner.getClass.getName.toString.hashCode).replace("-", "_")
+    println(s"analysing snapshotted ${this.toString}")
     val f = () => inner.analyse(g)
 
-    g.getCachedOrDo(tblName, f)
+    g.getCachedOrDo(inner.toString, f)
     //f()
   }
 
@@ -183,7 +182,6 @@ object ThreadLocalObj {
 }
 
 case class NonThreadLocalObj() extends VertexIdAnalyser {
-
   override def analyse(implicit g: SpencerDB): DataFrame = {
     g.selectFrame("uses",
       """SELECT callee
