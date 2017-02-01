@@ -121,6 +121,7 @@ object QueryParser {
       "StackBoundObj()",
       "AgeOrderedObj()",
       "ReverseAgeOrderedObj()",
+      "ThreadLocalObj()",
       "InstanceOf("+klass+")",
       "AllocatedAt("+allocationSite+")",
       "Obj()"
