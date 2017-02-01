@@ -176,7 +176,13 @@ case class MutableObj() extends VertexIdAnalyser {
   override def explanation(): String = "are changed outside their constructor"
 }
 
-case class ThreadLocalObj() extends VertexIdAnalyser {
+object ThreadLocalObj {
+  def apply() : VertexIdAnalyser = {
+    Named(IsNot(NonThreadLocalObj()), "ThreadLocalObj()")
+  }
+}
+
+case class NonThreadLocalObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
     g.selectFrame("uses",
@@ -184,7 +190,7 @@ case class ThreadLocalObj() extends VertexIdAnalyser {
         |FROM uses
         |WHERE callee > 0
         |GROUP BY callee
-        |HAVING COUNT(DISTINCT thread) = 1
+        |HAVING COUNT(DISTINCT thread) > 1
         |""".stripMargin)
       .withColumnRenamed("callee", "id")
   }
