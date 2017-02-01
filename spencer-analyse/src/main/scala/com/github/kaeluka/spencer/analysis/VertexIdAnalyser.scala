@@ -143,7 +143,7 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
 case class AgeOfNeighbours() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     g.getFrame("refs").createOrReplaceTempView("refs")
-    val query =
+    g.selectFrame("objects",
       """SELECT
         |  objects.id         AS id,
         |  objects.firstUsage AS firstUsage,
@@ -153,14 +153,11 @@ case class AgeOfNeighbours() extends VertexIdAnalyser {
         |INNER JOIN objects AS callees ON refs.callee = callees.id
         |WHERE
         |  refs.kind = 'field'
-      """.stripMargin
-
-    g.selectFrame("objects", query)
+      """.stripMargin)
   }
 
   override def explanation(): String = "Age"
 }
-
 
 case class MutableObj() extends VertexIdAnalyser {
 
@@ -174,6 +171,22 @@ case class MutableObj() extends VertexIdAnalyser {
           |  (kind = 'fieldstore' OR kind = 'modify')""".
       stripMargin)
         .withColumnRenamed("callee", "id")
+  }
+
+  override def explanation(): String = "are changed outside their constructor"
+}
+
+case class ThreadLocalObj() extends VertexIdAnalyser {
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    g.selectFrame("uses",
+      """SELECT callee
+        |FROM uses
+        |WHERE callee > 0
+        |GROUP BY callee
+        |HAVING COUNT(DISTINCT thread) = 1
+        |""".stripMargin)
+      .withColumnRenamed("callee", "id")
   }
 
   override def explanation(): String = "are changed outside their constructor"
@@ -487,7 +500,7 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val res = AgeOrderedObj().analyse //AgeOrderedObj().analyse
+  val res = ThreadLocalObj().analyse //AgeOrderedObj().analyse
   res.repartition().cache().show()
   println("analysis took "+watch.stop())
   println(s"got ${res.count} objects")

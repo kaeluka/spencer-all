@@ -68,6 +68,7 @@ object QueryParser {
       | "StackBoundObj()"
       | "AgeOrderedObj()"
       | "ReverseAgeOrderedObj()"
+      | "ThreadLocalObj()"
       | "Obj()"
       ).!)
       .map {
@@ -80,6 +81,7 @@ object QueryParser {
         case "StackBoundObj()"        => MaxInDegree.StackBoundObj()
         case "AgeOrderedObj()"        => AgeOrderedObj()
         case "ReverseAgeOrderedObj()" => ReverseAgeOrderedObj()
+        case "ThreadLocalObj()"       => ThreadLocalObj()
         case "Obj()"                  => Obj()
       }
       .map(_.snapshotted())
