@@ -418,15 +418,15 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     var ret : DataFrame = null
     try {
       ret = getFrame(name)
-      println(s"found cached frame for $name")
+      println(s"$query: found cached frame ($name)")
     } catch {
       case e:Throwable => {
-        println(s"didn't find cached frame for $name")
+        println(s"$query: didn't find cached frame ($name)")
         ret = f()
         assert(ret != null, "need result!")
         assert(ret.write != null )
         assert(ret.write.mode(SaveMode.Ignore) != null )
-        println(s"caching: $name: ${ret.count()} records")
+        println(s"$query: caching in $name: ${ret.count()} records")
         ret.write.mode(SaveMode.Ignore).jdbc(s"jdbc:postgresql:$dbname", name, new java.util.Properties())
       }
     }
