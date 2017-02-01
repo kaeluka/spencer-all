@@ -410,7 +410,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   }
 
   override def getCachedOrDo(query: String, f: () => DataFrame): DataFrame = {
-    val name = "cache_"+ toString.hashCode.toString
+    val name = "cache_"+ toString.hashCode.toString.replaceAll("-", "_")
     val opts = Map(
       "url" -> s"jdbc:postgresql:$dbname",
       "dbtable" -> name
