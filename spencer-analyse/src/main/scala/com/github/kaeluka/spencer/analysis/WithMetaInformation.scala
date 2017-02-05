@@ -36,9 +36,9 @@ case class ConnectedComponent() extends VertexIdAnalyser {
   override def explanation(): String = "are connected"
 }
 
-case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[ObjWithMeta]] {
+case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[DataFrame] {
 
-  override def analyse(implicit g: SpencerDB): RDD[ObjWithMeta] = {
+  override def analyse(implicit g: SpencerDB): DataFrame = {
     import g.sqlContext.implicits._
     val matchingIDs = inner.analyse(g)
 
@@ -47,8 +47,8 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
 
     g.getFrame("calls").createOrReplaceTempView("calls")
     g.getFrame("uses").createOrReplaceTempView("uses")
-    val frame = g.selectFrame("objects",
-    """SELECT
+    g.selectFrame("objects",
+        """SELECT
       |  id,
       |  first(klass) AS klass,
       |  first(allocationsitefile) AS allocationsitefile,
@@ -61,33 +61,10 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
       |LEFT OUTER JOIN calls ON calls.callee = objects.id
       |GROUP by objects.id
       |""".stripMargin)
-
-    val ret = frame
-      .rdd
-      .map(row =>
-        ObjWithMeta(
-          oid = row.getAs[Long]("id"),
-          klass = Option(row.getAs[String]("klass")),
-          allocationSite = Option(row.getAs[String]("allocationsitefile"))
-            .flatMap(file =>
-              Option(row.getAs[Int]("allocationsiteline"))
-                .map(line => file+":"+line.toString))
-            .filter(! _.contains("<")),
-          firstUsage = row.getAs[Long]("firstusage"),
-          lastUsage = row.getAs[Long]("lastusage"),
-          thread = Option(row.getAs[String]("thread")),
-          numFieldWrites = (Math.random()*1000).asInstanceOf[Long],
-          numFieldReads = (Math.random()*1000).asInstanceOf[Long],
-          numCalls = row.getAs[Long]("numCalls")
-          )
-        )
-    println("gotten meta info!")
-    ret
   }
 
-  override def pretty(result: RDD[ObjWithMeta]): String = {
-    "Satisfying "+inner+":\n\t"+
-      result.collect().mkString("\n")
+  override def pretty(result: DataFrame): String = {
+    result.toString()
   }
 
   def availableVariables : Map[String,String] = {

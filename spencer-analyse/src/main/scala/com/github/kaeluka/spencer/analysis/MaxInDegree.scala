@@ -26,15 +26,15 @@ object MaxInDegree {
   val None : Function[Int, Boolean] = NamedFunc(_ == 0,   "None")
 
   def UniqueObj() : VertexIdAnalyser = {
-    MaxInDegree(Unique, "UniqueObj()", InDegreeSpec.HEAP_OR_STACK)
+    Named(MaxInDegree(Unique, "UniqueObj()", InDegreeSpec.HEAP_OR_STACK), "UniqueObj()", "are never aliased")
   }
 
   def HeapUniqueObj() : VertexIdAnalyser = {
-    MaxInDegree(Unique, "HeapUniqueObj()", InDegreeSpec.HEAP)
+    Named(MaxInDegree(Unique, "HeapUniqueObj()", InDegreeSpec.HEAP), "HeapUniqueObj()", "are reachable from the heap but only from one alias")
   }
 
   def StackBoundObj() : VertexIdAnalyser = {
-    MaxInDegree(None, "StackBoundObj()", InDegreeSpec.HEAP)
+    Named(MaxInDegree(None, "StackBoundObj()", InDegreeSpec.HEAP), "StackBoundObj()", "are only used from the stack")
   }
 
   def highestOverlap(edges : Seq[(Option[Long], Option[Long])]) : Int = {

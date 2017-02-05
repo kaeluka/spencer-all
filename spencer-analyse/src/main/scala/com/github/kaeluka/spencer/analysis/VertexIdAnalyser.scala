@@ -177,7 +177,7 @@ case class MutableObj() extends VertexIdAnalyser {
 
 object ThreadLocalObj {
   def apply() : VertexIdAnalyser = {
-    Named(IsNot(NonThreadLocalObj()), "ThreadLocalObj()")
+    Named(IsNot(NonThreadLocalObj()), "ThreadLocalObj()", "are accessed by only one thread")
   }
 }
 
