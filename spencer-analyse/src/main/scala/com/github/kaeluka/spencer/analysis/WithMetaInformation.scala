@@ -74,8 +74,8 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
       "firstUsage"         -> "numerical",
       "lastUsage"          -> "numerical",
       "thread"             -> "categorical",
-      "numFieldWrites"     -> "numerical",
-      "numFieldReads"      -> "numerical",
+//      "numFieldWrites"     -> "numerical",
+//      "numFieldReads"      -> "numerical",
       "numCalls"           -> "numerical"
     )
   }
