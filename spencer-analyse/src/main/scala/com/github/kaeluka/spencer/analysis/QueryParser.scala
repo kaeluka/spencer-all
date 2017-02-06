@@ -68,7 +68,7 @@ object QueryParser {
       | "StackBoundObj()"
       | "AgeOrderedObj()"
       | "ReverseAgeOrderedObj()"
-      | "ThreadLocalObj()"
+//      | "ThreadLocalObj()"
       | "Obj()"
       ).!)
       .map {
