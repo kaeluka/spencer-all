@@ -109,9 +109,9 @@ case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     import g.sqlContext.implicits._
     AgeOfNeighbours().snapshotted().analyse
-      .groupBy("id", "firstUsage")
-      .agg(min($"calleeFirstUsage"), $"firstUsage")
-      .where($"min(calleeFirstUsage)" > $"firstUsage").select("id") union TinyObj().snapshotted().analyse
+      .groupBy("id", "firstusage")
+      .agg(min($"calleefirstusage"), $"firstusage")
+      .where($"min(calleefirstusage)" > $"firstusage").select("id") union TinyObj().snapshotted().analyse
   }
 
   override def explanation(): String = {
@@ -129,9 +129,9 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
     import g.sqlContext.implicits._
 //    AgeOfNeighbours().snapshotted().analyse.show()
     AgeOfNeighbours().snapshotted().analyse
-      .groupBy("id", "firstUsage")
-      .agg(max($"calleeFirstUsage"), $"firstUsage")
-      .where($"max(calleeFirstUsage)" < $"firstUsage").select("id") union TinyObj().snapshotted().analyse
+      .groupBy("id", "firstusage")
+      .agg(max($"calleefirstusage"), $"firstusage")
+      .where($"max(calleefirstusage)" < $"firstusage").select("id") union TinyObj().snapshotted().analyse
   }
 
   override def explanation(): String = {
@@ -145,8 +145,8 @@ case class AgeOfNeighbours() extends VertexIdAnalyser {
     g.selectFrame("objects",
       """SELECT
         |  objects.id         AS id,
-        |  objects.firstUsage AS firstUsage,
-        |  callees.firstUsage AS calleeFirstUsage
+        |  objects.firstusage AS firstusage,
+        |  callees.firstusage AS calleefirstusage
         |FROM objects
         |INNER JOIN refs               ON objects.id = refs.caller
         |INNER JOIN objects AS callees ON refs.callee = callees.id
@@ -161,15 +161,18 @@ case class AgeOfNeighbours() extends VertexIdAnalyser {
 case class MutableObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("uses",
-        """SELECT DISTINCT callee
-          |FROM uses
-          |WHERE
-          |  callee > 4 AND
-          |  method != '<init>' AND
-          |  (kind = 'fieldstore' OR kind = 'modify')""".
-      stripMargin)
-        .withColumnRenamed("callee", "id")
+    val ret = g.selectFrame("uses_cstore",
+      """SELECT DISTINCT callee
+        |FROM uses_cstore
+        |WHERE
+        |  callee > 4 AND
+        |  NOT(caller = callee AND method = '<init>') AND
+        |  (kind = 'fieldstore' OR kind = 'modify')""".
+        stripMargin)
+      .withColumnRenamed("callee", "id")
+      .repartition(1000)
+    println(s"partitions in ${this.toString}: ${ret.rdd.partitions.size}")
+    ret
   }
 
   override def explanation(): String = "are changed outside their constructor"
@@ -183,9 +186,9 @@ object ThreadLocalObj {
 
 case class NonThreadLocalObj() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("uses",
+    g.selectFrame("uses_cstore",
       """SELECT callee
-        |FROM uses
+        |FROM uses_cstore
         |WHERE callee > 0
         |GROUP BY callee
         |HAVING COUNT(DISTINCT thread) > 1
@@ -218,7 +221,15 @@ case class ImmutableObj() extends VertexIdAnalyser {
 case class StationaryObj() extends VertexIdAnalyser {
   def analyse_old(implicit g: SpencerDB): DataFrame = {
     import g.sqlContext.implicits._
-    val writeAfterRead = g.selectFrame("uses", "SELECT callee, method, kind FROM uses WHERE callee > 4 AND method != '<init>'")
+    val writeAfterRead = g.selectFrame("uses_cstore",
+      """SELECT
+        |  callee,
+        |  method,
+        |  kind
+        |FROM
+        |  uses_cstore
+        |WHERE
+        |  callee > 4 AND method != '<init>'""".stripMargin)
       .as[(Long, String, String)]
       .rdd
       .groupBy(_._1)
@@ -250,11 +261,11 @@ case class StationaryObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
     import g.sqlContext.implicits._
-    val firstReads = g.selectFrame("uses",
+    val firstReads = g.selectFrame("uses_cstore",
       """SELECT
         |  callee, MIN(idx)
         |FROM
-        |  uses
+        |  uses_cstore
         |WHERE
         |  callee > 4 AND
         |  method != '<init>' AND
@@ -262,11 +273,11 @@ case class StationaryObj() extends VertexIdAnalyser {
         |GROUP BY callee
         |""".stripMargin).withColumnRenamed("min(idx)", "firstRead")
 
-    val lastWrites = g.selectFrame("uses",
+    val lastWrites = g.selectFrame("uses_cstore",
         """SELECT
           |  callee, MAX(idx)
           |FROM
-          |  uses
+          |  uses_cstore
           |WHERE
           |  callee > 4 AND
           |  method != '<init>' AND
@@ -504,8 +515,9 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val res = ThreadLocalObj().analyse //AgeOrderedObj().analyse
-  res.repartition().cache().show()
+  val res = MutableObj().analyse //AgeOrderedObj().analyse
+  res.repartition()
+  res.show()
   println("analysis took "+watch.stop())
   println(s"got ${res.count} objects")
 }
