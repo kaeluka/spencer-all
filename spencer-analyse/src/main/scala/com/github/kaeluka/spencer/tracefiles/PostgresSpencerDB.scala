@@ -108,7 +108,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
   var insertCallBatchSize = 0
 
   var insertObjectStatement : java.sql.PreparedStatement = _
-  val saveOrigin = dbname.equals("test")
 
   val stacks: CallStackAbstraction = new CallStackAbstraction()
 
@@ -123,8 +122,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
             "fieldload",
             fieldload.getFname.toString,
             idx,
-            fieldload.getThreadName.toString,
-            EventsUtil.messageToString(evt))
+            fieldload.getThreadName.toString)
         case AnyEvt.Which.FIELDSTORE =>
           val fstore = evt.getFieldstore
 //          assert(fstore.getHoldertag != 0, s"edge caller is 0! ${EventsUtil.fieldStoreToString(fstore)}")
@@ -135,8 +133,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
             kind    = "fieldstore",
             name    = fstore.getFname.toString,
             idx     = idx,
-            thread  = fstore.getThreadName.toString,
-            comment = EventsUtil.fieldStoreToString(fstore))
+            thread  = fstore.getThreadName.toString)
           if (fstore.getNewval != 0) {
             openEdge(
               holder  = fstore.getHoldertag,
@@ -144,8 +141,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
               kind    = "field",
               name    = fstore.getFname.toString,
               thread  = fstore.getThreadName.toString,
-              start   = idx,
-              comment = EventsUtil.fieldStoreToString(fstore))
+              start   = idx)
           }
         case AnyEvt.Which.METHODENTER =>
           val menter = evt.getMethodenter
@@ -154,8 +150,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           if (menter.getName.toString == "<init>") {
             insertObject(menter.getCalleetag, menter.getCalleeclass.toString,
               menter.getCallsitefile.toString, menter.getCallsiteline,
-              menter.getThreadName.toString,
-              EventsUtil.messageToString(evt))
+              menter.getThreadName.toString)
           }
         case AnyEvt.Which.METHODEXIT =>
           val mexit = evt.getMethodexit
@@ -179,8 +174,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
                   end          = idx,
                   thread       = menter.enter.getThreadName.toString,
                   callSiteFile = menter.enter.getCallsitefile.toString,
-                  callSiteLine = menter.enter.getCallsiteline,
-                  comment      = "")
+                  callSiteLine = menter.enter.getCallsiteline)
                 var i = 0
                 val Nvars = variables.length
                 while (i < Nvars) {
@@ -214,7 +208,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           , -1, "late initialisation")
         for (fld <- lateinit.getFields) {
           if (fld.getVal != 0) {
-            openEdge(lateinit.getCalleetag, fld.getVal, "field", fld.getName.toString, "<JVM thread>", 1, "")
+            openEdge(lateinit.getCalleetag, fld.getVal, "field", fld.getName.toString, "<JVM thread>", 1)
           }
         }
       case AnyEvt.Which.READMODIFY =>
@@ -234,8 +228,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           kind = kind,
           name = readmodify.getFname.toString,
           idx = idx,
-          thread = readmodify.getThreadName.toString,
-          comment = if (saveOrigin) EventsUtil.messageToString(evt) else "")
+          thread = readmodify.getThreadName.toString)
       case AnyEvt.Which.VARLOAD =>
         val varload: Events.VarLoadEvt.Reader = evt.getVarload
         insertUse(
@@ -245,8 +238,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           kind = "varload",
           name ="var_"+varload.getVar.toString,
           idx = idx,
-          thread = varload.getThreadName.toString,
-          comment = if (saveOrigin) EventsUtil.messageToString(evt) else "")
+          thread = varload.getThreadName.toString)
       case AnyEvt.Which.VARSTORE =>
         val varstore: Events.VarStoreEvt.Reader = evt.getVarstore
         // step 1: emit use:
@@ -257,8 +249,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           kind = "varstore",
           name ="var_"+varstore.getVar.toString,
           idx = idx,
-          thread = varstore.getThreadName.toString,
-          comment = if (saveOrigin) EventsUtil.messageToString(evt) else "")
+          thread = varstore.getThreadName.toString)
         if (! stacks.peek(varstore.getThreadName.toString).map(_.enter.getCalleetag).contains(varstore.getCallertag) ) {
           println(s"""at $idx: last enter's callee tag and varstore's caller tag do not match:
                      |enter   : ${stacks.peek(varstore.getThreadName.toString)}
@@ -285,8 +276,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
             kind = "var",
             name = "var_" + varstore.getVar,
             thread = varstore.getThreadName.toString,
-            start = idx,
-            comment = EventsUtil.messageToString(evt))
+            start = idx)
         } else {
           stacks.markVarAsUnused(varstore.getThreadName.toString, varstore.getVar)
         }
@@ -302,7 +292,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     }
   }
 
-  def insertCall(caller: Long, callee: Long, name: String, start : Long, end: Long, thread: String, callSiteFile: String, callSiteLine: Long, comment: String = "none") {
+  def insertCall(caller: Long, callee: Long, name: String, start : Long, end: Long, thread: String, callSiteFile: String, callSiteLine: Long) {
     this.insertCallStatement.clearParameters()
     this.insertCallStatement.setLong  (1, caller)
     this.insertCallStatement.setLong  (2, callee)
@@ -312,7 +302,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertCallStatement.setString(6, thread)
     this.insertCallStatement.setString(7, callSiteFile)
     this.insertCallStatement.setLong  (8, callSiteLine)
-    this.insertCallStatement.setString(9, comment)
     this.insertCallStatement.addBatch()
     this.insertCallBatchSize += 1
     if (insertCallBatchSize > 10000) {
@@ -323,7 +312,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     }
   }
 
-  def insertObject(tag: Long, klass: String, allocationsitefile: String, allocationsiteline: Long, thread: String, comment: String = "none") {
+  def insertObject(tag: Long, klass: String, allocationsitefile: String, allocationsiteline: Long, thread: String) {
     assert(allocationsitefile != null)
     assert(thread != null)
     assert(tag != 0)
@@ -333,17 +322,12 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertObjectStatement.setString(3, allocationsitefile)
     this.insertObjectStatement.setLong  (4, allocationsiteline)
     this.insertObjectStatement.setString(5, thread)
-    if (saveOrigin) {
-      this.insertObjectStatement.setString(6, comment)
-    } else {
-      this.insertObjectStatement.setString(6, "")
-    }
     this.insertObjectStatement.execute()
   }
 
-  def openEdge(holder: Long, callee: Long, kind: String, name: String, thread: String, start: Long, comment: String = "none") {
-    assert(callee != 0, s"callee must not be 0: $comment")
-    assert(holder != 0, s"holder must not be 0: $comment")
+  def openEdge(holder: Long, callee: Long, kind: String, name: String, thread: String, start: Long) {
+    assert(callee != 0, s"callee must not be 0")
+    assert(holder != 0, s"holder must not be 0")
     assert(kind != null && kind.equals("var") || kind.equals("field"), "kind must be 'var' or 'field'")
 
     this.insertEdgeStatement.clearParameters()
@@ -353,7 +337,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertEdgeStatement.setString(4, name)
     this.insertEdgeStatement.setString(5, thread)
     this.insertEdgeStatement.setLong  (6, start)
-    this.insertEdgeStatement.setString(7, if (saveOrigin) comment else "")
     this.insertEdgeStatement.addBatch()
     this.insertEdgeBatchSize += 1
     if (insertEdgeBatchSize > 10000) {
@@ -382,9 +365,9 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     }
   }
 
-  def insertUse(caller: Long, callee: Long, method: String, kind: String, name: String, idx: Long, thread: String, comment: String = "none") {
-    assert(caller != 0, s"#$idx: caller must not be 0: $comment")
-    assert(callee != 0, s"#$idx: callee must not be 0: $comment")
+  def insertUse(caller: Long, callee: Long, method: String, kind: String, name: String, idx: Long, thread: String) {
+    assert(caller != 0, s"#$idx: caller must not be 0")
+    assert(callee != 0, s"#$idx: callee must not be 0")
     assert(method != null && method.length > 0, "#$idx: method name must be given")
     assert(kind != null   && kind.equals("fieldstore") || kind.equals("fieldload") ||kind.equals("varload") ||  kind.equals("varstore") || kind.equals("read") || kind.equals("modify"), s"#$idx: kind must be 'varstore/load' or 'fieldstore/load' or 'read' or 'modify', but is $kind")
     assert(idx > 0)
@@ -398,7 +381,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.insertUseStatement.setString(5, name)
     this.insertUseStatement.setLong  (6, idx)
     this.insertUseStatement.setString(7, thread)
-    this.insertUseStatement.setString(8, if (saveOrigin) comment else "")
     this.insertUseStatement.addBatch()
     this.insertUseBatchSize+=1
     if (insertUseBatchSize > 10000) {
@@ -452,12 +434,11 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
             row.getAs[Long]("idx"),
             Option(row.getAs[String]("kind")).getOrElse("<unknown kind>"),
             Option(row.getAs[String]("name")).getOrElse("<unknown name>"),
-            Option(row.getAs[String]("thread")).getOrElse("<unknown thread>"),
-            row.getAs[String]("comment"))
+            Option(row.getAs[String]("thread")).getOrElse("<unknown thread>"))
         )
 
     val useEvents = uses.map {
-      case ((caller, callee, idx, kind, name, thread, comment)) => AproposUseEvent(caller, callee, idx, kind, name, thread, "use "+comment).asInstanceOf[AproposEvent]
+      case ((caller, callee, idx, kind, name, thread)) => AproposUseEvent(caller, callee, idx, kind, name, thread, "use").asInstanceOf[AproposEvent]
     }
 
     val callsTable = this.selectFrame("calls", s"SELECT * FROM calls WHERE caller = $tag OR callee = $tag").rdd
@@ -470,7 +451,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
             , row.getAs[String]("name")
             , row.getAs[String]("callsitefile") + ":" + row.getAs[Long]("callsiteline")
             , Option(row.getAs[String]("thread")).getOrElse("<unknown thread>")
-            , row.getAs[String]("comment")).asInstanceOf[AproposEvent]
+            , "no comment").asInstanceOf[AproposEvent]
         )
 
     val refsTable = this.selectFrame("refs", s"SELECT * FROM refs WHERE caller = $tag OR callee = $tag").rdd
@@ -484,7 +465,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           , row.getAs[String]("name")
           , row.getAs[String]("kind")
           , Option(row.getAs[String]("thread")).getOrElse("<unknown thread>")
-          , row.getAs[String]("comment")).asInstanceOf[AproposEvent])
+          , "no comment").asInstanceOf[AproposEvent])
 
     AproposData(
       None,
@@ -624,7 +605,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
       //                                       A enter, B enter, C enter, A exit, B exit, C exit
       val times = ret
         .getArray("startend_times").getArray.asInstanceOf[Array[java.lang.Long]]
-      println(ret.getLong("callee")+" - "+times.mkString(", "))
       this.conn.createStatement().execute(s"UPDATE calls SET callstart = ${times(0)} WHERE callend = ${times.last}")
       var i = 1
       while (i < times.length/2) {
@@ -730,7 +710,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
 
     val events = TraceFiles.fromPath(path).iterator
     var watch = Stopwatch.createStarted()
-    val printBatchSize = 1e5
+    val printBatchSize = 10e6
     var i : Long = 1
     while (events.hasNext) {
       val evt: AnyEvt.Reader = events.next
@@ -785,7 +765,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     this.conn.commit()
 
     this.conn.createStatement().execute(
-      "CREATE TABLE meta (key text, val text, PRIMARY KEY(key));")
+      "CREATE TABLE meta (key text UNIQUE, val text, PRIMARY KEY(key));")
     this.conn.createStatement().execute(
       s"""INSERT INTO meta
           |  (key, val)
@@ -799,6 +779,12 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  (key, val)
         |VALUES
         |  ('date', '${now.get(Calendar.YEAR)}-${"%02d".format(now.get(Calendar.MONTH) + 1)}-${now.get(Calendar.DAY_OF_MONTH)}');
+      """.stripMargin)
+    this.conn.createStatement().execute(
+      s"""INSERT INTO meta
+          |  (key, val)
+          |VALUES
+          |  ('eventcount', '${i-1}');
       """.stripMargin)
     this.conn.commit()
     this.shutdown()
@@ -848,14 +834,13 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     initDbConnection()
     this.conn.createStatement().execute(
       """CREATE TABLE objects (
-        |  id bigint,
+        |  id bigint UNIQUE,
         |  klass text,
         |  allocationsitefile text,
         |  allocationsiteline integer,
-        |  firstUsage bigint,
-        |  lastUsage bigint,
+        |  firstUsage bigint UNIQUE,
+        |  lastUsage bigint UNIQUE,
         |  thread text,
-        |  comment text,
         |  PRIMARY KEY(id))""".stripMargin)
 
     this.conn.createStatement().execute(
@@ -864,10 +849,9 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  callee bigint,
         |  kind varchar(10),
         |  name varchar(80),
-        |  refstart bigint,
+        |  refstart bigint UNIQUE,
         |  refend bigint,
         |  thread text,
-        |  comment text,
         |  PRIMARY KEY (caller, kind, refstart))
        """.stripMargin)
     this.conn.createStatement().execute(
@@ -880,7 +864,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  callsitefile text,
         |  callsiteline bigint,
         |  thread text,
-        |  comment text,
         |  PRIMARY KEY (caller, callee, callstart, callend))
       """.stripMargin)
     this.conn.createStatement().execute(
@@ -892,7 +875,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  kind text,
         |  idx bigint,
         |  thread varchar(80),
-        |  comment text,
         |  PRIMARY KEY(caller, callee, idx))
       """.stripMargin)
 
@@ -914,9 +896,8 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  klass,
         |  allocationsitefile,
         |  allocationsiteline,
-        |  thread,
-        |  comment) VALUES (?, ?, ?, ?, ?, ?)
-        |  ON CONFLICT DO NOTHING""".stripMargin)
+        |  thread) VALUES (?, ?, ?, ?, ?)
+        |  ON CONFLICT(id) DO UPDATE SET klass = EXCLUDED.klass;""".stripMargin)
     this.insertEdgeStatement = this.conn.prepareStatement(
       """INSERT INTO refs (
         |  caller,
@@ -924,8 +905,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  kind,
         |  name,
         |  thread,
-        |  refstart,
-        |  comment) VALUES (?, ?, ?, ?, ?, ?, ? )""".stripMargin)
+        |  refstart) VALUES (?, ?, ?, ?, ?, ? )""".stripMargin)
     this.finishEdgeStatement = this.conn.prepareStatement(
       """UPDATE refs
         |SET refend = ?
@@ -939,8 +919,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  kind,
         |  name,
         |  idx,
-        |  thread,
-        |  comment) VALUES ( ?, ?, ?, ?, ?, ?, ?, ? )""".stripMargin)
+        |  thread) VALUES (?, ?, ?, ?, ?, ?, ? )""".stripMargin)
     this.insertCallStatement = this.conn.prepareStatement(
       """INSERT INTO calls (
         |  caller,
@@ -950,7 +929,6 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
         |  callend,
         |  thread,
         |  callsitefile,
-        |  callsiteline,
-        |  comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""".stripMargin)
+        |  callsiteline) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""".stripMargin)
   }
 }
