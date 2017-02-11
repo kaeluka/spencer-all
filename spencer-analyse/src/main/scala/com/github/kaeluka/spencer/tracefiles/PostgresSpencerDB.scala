@@ -407,12 +407,12 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     } catch {
       case e: PSQLException =>
         this.conn.commit()
-        println(
-          s"""caching query $query into $name, SQL is:
-            |--------------------------
-            |$sql
-            |--------------------------
-          """.stripMargin)
+//        println(
+//          s"""caching query $query into $name, SQL is:
+//            |--------------------------
+//            |$sql
+//            |--------------------------
+//          """.stripMargin)
 
         this.conn.createStatement().execute(
           s"CREATE TABLE $name AS $sql")
@@ -773,7 +773,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     watch = Stopwatch.createStarted()
     print("sorting constructor calls... ")
     sortConstructorCalls()
-    println(s"done after ${watch.stop()}")
+    println(s"\tdone after ${watch.stop()}")
 
     watch.reset().start()
 

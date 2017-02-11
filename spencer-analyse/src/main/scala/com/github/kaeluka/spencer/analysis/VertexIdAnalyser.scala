@@ -54,7 +54,15 @@ case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   override def toString: String = vs.mkString("And(", " ", ")")
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    val oqueries = vs.map(_.getSQL)
+    if (oqueries.forall(_.isDefined)) {
+      val queries = oqueries
+        .map(_.get)
+      val SQL = queries.mkString("(", ") INTERSECT (", ")")
+      Some(SQL)
+    } else {
+      None
+    }
   }
 }
 
@@ -65,15 +73,15 @@ object Or {
       case None =>
         val vs = vs_
           .flatMap({
-            case Or_(innerVs) => innerVs
+            case _Or(innerVs) => innerVs
             case other => List(other)
           })
-        Or_(vs)
+        _Or(vs)
     }
   }
 }
 
-case class Or_(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
+case class _Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     if (vs.contains(Obj())) {
       Obj().analyse
@@ -87,7 +95,15 @@ case class Or_(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   override def toString: String = vs.mkString("Or(", " ", ")")
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    val oqueries = vs.map(_.getSQL)
+    if (oqueries.forall(_.isDefined)) {
+      val queries = oqueries
+        .map(_.get)
+      val SQL = queries.mkString("(", ") UNION (", ")")
+      Some(SQL)
+    } else {
+      None
+    }
   }
 }
 
@@ -132,7 +148,12 @@ case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
     "are only holding field references to objects created after them"
   }
 
-  override def getSQL = None //FIXME
+  override def getSQL = {
+    Some(s"""SELECT id FROM
+            |  (${AgeOfNeighbours().getSQL.get}) AS AgeOfNeigbhours
+            |GROUP BY id, firstusage
+            |HAVING MAX(calleefirstusage) > firstusage""".stripMargin)
+    }
 }
 
 /**
@@ -154,7 +175,10 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
   }
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some(s"""SELECT id FROM
+            |  (${AgeOfNeighbours().getSQL.get}) AS AgeOfNeigbhours
+            |GROUP BY id, firstusage
+            |HAVING MAX(calleefirstusage) < firstusage""".stripMargin)
   }
 }
 
@@ -244,7 +268,7 @@ case class ImmutableObj() extends VertexIdAnalyser {
   override def explanation(): String = "are never changed outside their constructor"
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    IsNot(MutableObj().snapshotted()).getSQL
   }
 }
 
@@ -349,7 +373,10 @@ case class IsNot(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "not "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some(s"""SELECT id FROM objects WHERE id > 4
+            |EXCEPT
+            |  (${inner.getSQL.get})
+          """.stripMargin)
   }
 }
 
@@ -436,7 +463,15 @@ case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "are field-referring to objects that "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some(s"""SELECT
+            |  callee AS id
+            |FROM
+            |  refs
+            |WHERE
+            |  kind = 'field' AND
+            |  callee IN (
+            |    ${inner.getSQL.get}
+            |  )""".stripMargin)
   }
 }
 
@@ -453,7 +488,14 @@ case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "are referring to objects that "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some(s"""SELECT
+             |  callee AS id
+             |FROM
+             |  refs
+             |WHERE
+             |  callee IN (
+             |    ${inner.getSQL.get}
+             |  )""".stripMargin)
   }
 }
 
@@ -471,7 +513,15 @@ case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "are heap-referred to from objects that "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some(s"""SELECT
+             |  callee AS id
+             |FROM
+             |  refs
+             |WHERE
+             |  kind = 'field' AND
+             |  caller IN (
+             |    ${inner.getSQL.get}
+             |  )""".stripMargin)
   }
 }
 
@@ -489,7 +539,14 @@ case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "are referred to from objects that "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some(s"""SELECT
+             |  callee AS id
+             |FROM
+             |  refs
+             |WHERE
+             |  caller IN (
+             |    ${inner.getSQL.get}
+             |  )""".stripMargin)
   }
 }
 
@@ -558,7 +615,15 @@ case class TinyObj() extends VertexIdAnalyser {
   override def explanation(): String = "do not have or do not use reference type fields"
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some(
+      s"""(${Obj().snapshotted().getSQL.get})
+        |  EXCEPT
+        |  (SELECT
+        |     DISTINCT caller
+        |   FROM
+        |     refs
+        |   WHERE
+        |     kind = 'field')""".stripMargin)
   }
 }
 
@@ -568,7 +633,7 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = MutableObj()
+  val q = TinyObj()
   val res = q.analyse //AgeOrderedObj().analyse
 
   res.repartition()
