@@ -101,24 +101,6 @@ case class LifeTime(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(Vertex
   override def explanation(): String = "shows the first and last times objects were used"
 }
 
-/*
-case class ObjsByClass() extends SpencerAnalyser[RDD[(String, Iterable[VertexId])]] {
-  override def analyse(implicit g: SpencerDB): RDD[(String, Iterable[VertexId])] = {
-    g.db.getTable("objects")
-      .groupBy(_.getStringOption("klass"))
-      .filter(_._1.isDefined)
-//        .filter({case ()})
-      .map({ case (optKlass, objects) => (optKlass.get, objects.map(_.getLong("id")))})
-  }
-
-  override def pretty(result: RDD[(String, Iterable[VertexId])]): String = {
-    result.sortBy(_._2.size).collect().map({case (klass, objs) => klass + " - ("+ objs.size + " instances): \n\t\t" + objs.mkString("[", ", ", "]")}).mkString("\n")
-  }
-
-  override def explanation(): String = "grouped by allocation site"
-}
-*/
-
 case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[Array[T]] {
   override def analyse(implicit g: SpencerDB): Array[T] = {
     inner.analyse.collect()
@@ -130,111 +112,6 @@ case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[A
 
   override def explanation(): String = inner.explanation()
 }
-
-/*
-case class GroupByClass(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(Option[String], Iterable[VertexId])]] {
-  override def analyse(implicit g: SpencerDB): RDD[(Option[String], Iterable[VertexId])] = {
-    val innerCollected = inner.analyse.collect()
-    g.db.getTable("objects")
-      .select("klass", "id")
-      .where("id IN ?", innerCollected.toList)
-      .map(row => (row.getStringOption("klass"), row.getLong("id")))
-      .groupBy(_._1)
-      .map {
-        case (oKlass, iter) =>
-          (oKlass, iter.map(_._2))
-      }
-  }
-
-  override def pretty(result: RDD[(Option[String], Iterable[VertexId])]): String = {
-    val collected =
-      (if (result.count() < 1000) {
-        result.sortBy(_._2.size*(-1))
-      } else {
-        result
-      }).collect()
-
-    this.toString+":\n"+
-      collected.map({
-        case (allocationSite, instances) =>
-          val size = instances.size
-          allocationSite+"\t-\t"+(if (size > 50) {
-            instances.take(50).mkString("\t"+size+" x - [ ", ", ", " ... ]")
-          } else {
-            instances.mkString("\t"+size+" x - [ ", ", ", " ]")
-          })
-      }).mkString("\n")
-  }
-
-  override def explanation(): String = "some objects, grouped by class"
-}
-*/
-
-/*
-case class PerClass[U: ClassTag](f : (Option[String], Iterable[VertexId]) => Option[U]) extends SpencerAnalyser[RDD[U]] {
-  override def analyse(implicit g: SpencerDB): RDD[U] = {
-    val innerObjs: Set[VertexId] = Obj().analyse.collect().toSet[VertexId]
-    val grouped: RDD[(Option[String], Iterable[VertexId])] =
-      GroupByClass(Obj()).analyse
-    if (classTag[U].toString.contains("RDD") /* hack */) {
-      grouped.flatMap({case (loc, it) => f(loc, it)})
-    } else {
-      CassandraSpencerDB.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
-    }
-  }
-
-  override def pretty(result: RDD[U]): String = {
-    result.collect().mkString(this.toString+":\n\t - ", "\n\t - ", "")
-  }
-
-  override def explanation(): String = "grouped by class, then mapped"
-}
-*/
-
-/*
-case class PerAllocationSite[U: ClassTag](f : ((Option[String], Option[Long]), Iterable[VertexId]) => Option[U]) extends SpencerAnalyser[RDD[U]] {
-  override def analyse(implicit g: SpencerDB): RDD[U] = {
-    val innerObjs: Set[VertexId] = Obj().analyse.collect().toSet[VertexId]
-    val grouped: RDD[((Option[String], Option[Long]), Iterable[VertexId])] =
-      GroupByAllocationSite(Obj()).analyse
-    if (classTag[U].toString.contains("RDD") /* hack */) {
-      grouped.flatMap({case (loc, it) => f(loc, it)})
-    } else {
-      CassandraSpencerDB.sc.parallelize(grouped.collect().flatMap({case (loc, it) => f(loc, it)}))
-    }
-  }
-
-  override def pretty(result: RDD[U]): String = {
-    result.collect().mkString(this.toString+":\n\t - ", "\n\t - ", "")
-  }
-
-  override def explanation(): String = "grouped by allocation sites and then mapped"
-}
-*/
-
-/*
-object ProportionPerClass {
-  def apply(inner: VertexIdAnalyser)(implicit g: SpencerDB) : SpencerAnalyser[RDD[(Option[String], (Int, Int))]] = {
-    val innerSet = inner.analyse.collect().toSet
-    PerClass({case (loc, iter) => {
-      val instances: Set[VertexId] = iter.toSet
-      Some((loc, ((instances intersect innerSet).size, instances.size)))
-    }})
-  }
-}
-*/
-
-/*
-object ProportionPerAllocationSite {
-  def apply(inner: VertexIdAnalyser)(implicit g: SpencerDB) : SpencerAnalyser[RDD[((Option[String], Option[Long]), (Int, Int))]] = {
-    val innerSet = inner.analyse.collect().toSet
-    PerAllocationSite({case (loc, iter) => {
-      val allocSiteObjs: Set[VertexId] = iter.toSet
-      Some((loc, ((allocSiteObjs intersect innerSet).size, allocSiteObjs.size)))
-    }})
-  }
-}
-*/
 
 object Scratch extends App {
 

@@ -100,7 +100,6 @@ object QueryParser {
   }
 
   def parseObjQuery(txt: String): Either[String, VertexIdAnalyser] = {
-    println(s"input text: $txt")
     val res: Parsed[VertexIdAnalyser, Char, String] = objQuery.parse(
       unescape(txt)
     )

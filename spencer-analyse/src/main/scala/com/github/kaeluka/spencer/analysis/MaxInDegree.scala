@@ -195,9 +195,7 @@ case class MaxInDegree(p: Int => Boolean, name: String, spec: InDegreeSpec = HEA
   override def toString: String = this.name
 
   override def explanation(): String = "the maximum in degree per object"
-}
 
-//  override def toString(): String = {
-//  }
-//}
+  override def getSQL = None //FIXME
+}
 

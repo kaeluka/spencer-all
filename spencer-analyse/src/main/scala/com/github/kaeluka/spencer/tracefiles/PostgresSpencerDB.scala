@@ -2,7 +2,7 @@ package com.github.kaeluka.spencer
 
 import java.io._
 import java.nio.file.{Path, Paths}
-import java.sql.{Connection, DriverManager}
+import java.sql.{Connection, DriverManager, ResultSet, SQLException}
 import java.util.{Calendar, Date, EmptyStackException}
 import java.util.concurrent.TimeUnit
 
@@ -85,11 +85,19 @@ object PostgresSpencerDBs extends SpencerDBs {
   }
 }
 
-class PostgresSpencerDB(dbname: String) extends SpencerDB {
+class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends SpencerDB {
   var conn : Connection = _
 
-  val sqlContext: SQLContext = new SQLContext(PostgresSpencerDBs.sc)
-  sqlContext.setConf("keyspace", dbname)
+  val sqlContext: SQLContext = if (startSpark) {
+    val ctx = new SQLContext(PostgresSpencerDBs.sc)
+    ctx.setConf("keyspace", dbname)
+    ctx
+  } else {
+    null
+  }
+
+  if (startSpark) {
+  }
 
   override def shutdown() = {
     this.conn.close()
@@ -391,12 +399,30 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     }
   }
 
+  def getCachedOrRunQuery(query: String, sql: String): ResultSet = {
+    val name = "cache_"+ query.hashCode.toString.replaceAll("-", "_")
+    var ret: ResultSet = null
+    try {
+      ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name;")
+    } catch {
+      case e: PSQLException =>
+        this.conn.commit()
+        println(
+          s"""caching query $query into $name, SQL is:
+            |--------------------------
+            |$sql
+            |--------------------------
+          """.stripMargin)
+
+        this.conn.createStatement().execute(
+          s"CREATE TABLE $name AS $sql")
+        ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name")
+    }
+    ret
+  }
+
   override def getCachedOrDo(query: String, f: () => DataFrame): DataFrame = {
     val name = "cache_"+ query.hashCode.toString.replaceAll("-", "_")
-    val opts = Map(
-      "url" -> s"jdbc:postgresql:$dbname",
-      "dbtable" -> name
-    )
     var ret : DataFrame = null
     try {
       ret = getFrame(name)
@@ -587,7 +613,7 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
     */
   def sortConstructorCalls(): Unit = {
     val watch = Stopwatch.createStarted()
-    print("getting correction map (new).. ")
+    print("getting correction map.. ")
     //first reorder the calls to this:
     val ret = this.conn.createStatement().executeQuery(
       """SELECT
@@ -787,7 +813,49 @@ class PostgresSpencerDB(dbname: String) extends SpencerDB {
           |  ('eventcount', '${i-1}');
       """.stripMargin)
     this.conn.commit()
+
+    val e = this.conn.createStatement().execute(
+      """CREATE EXTENSION cstore_fdw;
+        |CREATE SERVER cstore_server FOREIGN DATA WRAPPER cstore_fdw;
+        |DROP FOREIGN TABLE IF EXISTS uses_cstore;
+        |
+        |CREATE FOREIGN TABLE uses_cstore (
+        |  caller integer,
+        |  callee integer,
+        |  name text,
+        |  method text,
+        |  kind text,
+        |  idx bigint,
+        |  thread varchar(80),
+        |  comment text)
+        |SERVER cstore_server
+        |OPTIONS(compression 'pglz');
+        |
+        |-- load negative callees first to improve skip index peformance:
+        |INSERT INTO uses_cstore SELECT * FROM uses WHERE callee < 0;
+        |INSERT INTO uses_cstore SELECT * FROM uses WHERE callee >= 0;
+      """.stripMargin)
+    this.conn.commit()
+
+    cacheQueries()
+    this.conn.commit()
+
     this.shutdown()
+  }
+
+  def cacheQueries(): Unit = {
+    val qs = QueryParser.primitiveQueries()
+    for (q <- qs) {
+      q.getSQL match {
+        case Some(sql) =>
+          val time = Stopwatch.createStarted()
+          print(s"pre caching $q.. ")
+          val res = this.getCachedOrRunQuery(q.toString, sql)
+          println(s"done after $time")
+        case None =>
+          ()
+      }
+    }
   }
 
   def connect(): Unit = {
