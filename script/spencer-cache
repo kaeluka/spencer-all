@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+DIR=$(dirname $0)
+cd $DIR/../spencer-analyse/ && target/appassembler/bin/spencer-cache $@
