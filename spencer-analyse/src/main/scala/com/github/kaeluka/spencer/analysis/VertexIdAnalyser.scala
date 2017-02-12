@@ -26,6 +26,12 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
   def getSQL: Option[String]
 }
 
+object AnaUtil {
+  def indent(s: String, lvl: Int): String = {
+    s.split("\n").mkString("\n"+(" "*lvl))
+  }
+}
+
 object And {
   def apply(vs: Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
     val vs_ = vs
@@ -58,7 +64,9 @@ case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
     if (oqueries.forall(_.isDefined)) {
       val queries = oqueries
         .map(_.get)
-      val SQL = queries.mkString("(", ") INTERSECT (", ")")
+      val SQL = queries
+        .map(AnaUtil.indent(_,2))
+        .mkString("(\n", "\n) INTERSECT (\n", "\n)")
       Some(SQL)
     } else {
       None
@@ -99,7 +107,9 @@ case class _Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
     if (oqueries.forall(_.isDefined)) {
       val queries = oqueries
         .map(_.get)
-      val SQL = queries.mkString("(", ") UNION (", ")")
+      val SQL = queries
+        .map(AnaUtil.indent(_,2))
+        .mkString("(\n", "\n) UNION (\n", "\n)")
       Some(SQL)
     } else {
       None
@@ -150,7 +160,7 @@ case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
 
   override def getSQL = {
     Some(s"""SELECT id FROM
-            |  (${AgeOfNeighbours().getSQL.get}) AS AgeOfNeigbhours
+            |  (${AnaUtil.indent(AgeOfNeighbours().getSQL.get,3)}) AS AgeOfNeigbhours
             |GROUP BY id, firstusage
             |HAVING MAX(calleefirstusage) > firstusage""".stripMargin)
     }
@@ -176,7 +186,7 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
 
   override def getSQL: Option[String] = {
     Some(s"""SELECT id FROM
-            |  (${AgeOfNeighbours().getSQL.get}) AS AgeOfNeigbhours
+            |  (${AnaUtil.indent(AgeOfNeighbours().getSQL.get,3)}) AS AgeOfNeigbhours
             |GROUP BY id, firstusage
             |HAVING MAX(calleefirstusage) < firstusage""".stripMargin)
   }
@@ -368,10 +378,11 @@ case class IsNot(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "not "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    Some(s"""SELECT id FROM objects WHERE id > 4
-            |EXCEPT
-            |  (${inner.getSQL.get})
-          """.stripMargin)
+    inner.getSQL.map(sql =>
+      s"""SELECT id FROM objects WHERE id > 4
+         |EXCEPT
+         |  (${AnaUtil.indent(sql,3)})
+        """.stripMargin)
   }
 }
 
@@ -466,7 +477,7 @@ case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
          |WHERE
          |  kind = 'field' AND
          |  callee IN (
-         |    $sql
+         |    ${AnaUtil.indent(sql,4)}
          |  )""".stripMargin)
   }
 }
@@ -491,7 +502,7 @@ case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
          |  refs
          |WHERE
          |  callee IN (
-         |    $sql
+         |    ${AnaUtil.indent(sql,4)}
          |  )""".stripMargin)
   }
 }
@@ -518,7 +529,7 @@ case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
          |WHERE
          |  kind = 'field' AND
          |  caller IN (
-         |    $sql
+         |    ${AnaUtil.indent(sql,4)}
          |  )""".stripMargin)
   }
 }
@@ -544,7 +555,7 @@ case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
          |  refs
          |WHERE
          |  caller IN (
-         |    $sql
+         |    ${AnaUtil.indent(sql,4)}
          |  )""".stripMargin)
   }
 }
@@ -553,7 +564,7 @@ case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getSQL: Option[String] = {
     inner.getSQL.map(sql =>
       s"""WITH RECURSIVE heapreachablefrom(id) AS (
-         |    $sql
+         |    ${AnaUtil.indent(sql,4)}
          |  UNION
          |    SELECT
          |      refs.callee AS id
@@ -575,7 +586,7 @@ case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getSQL: Option[String] = {
     inner.getSQL.map(sql =>
       s"""WITH RECURSIVE reachablefrom(id) AS (
-         |    $sql
+         |    ${AnaUtil.indent(sql,4)}
          |  UNION
          |    SELECT
          |      refs.callee AS id
@@ -596,7 +607,7 @@ case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getSQL: Option[String] = {
     inner.getSQL.map(sql =>
       s"""WITH RECURSIVE canheapreach(id) AS (
-         |    $sql
+         |    ${AnaUtil.indent(sql,4)}
          |  UNION
          |    SELECT
          |      refs.caller AS id
@@ -618,7 +629,7 @@ case class CanReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getSQL: Option[String] = {
     inner.getSQL.map(sql =>
       s"""WITH RECURSIVE canreach(id) AS (
-         |    ${inner.getSQL.get}
+         |    ${AnaUtil.indent(sql, 4)}
          |  UNION
          |    SELECT
          |      refs.caller AS id
@@ -701,7 +712,7 @@ case class TinyObj() extends VertexIdAnalyser {
 
   override def getSQL: Option[String] = {
     Some(
-      s"""(${Obj().snapshotted().getSQL.get})
+      s"""(${AnaUtil.indent(Obj().snapshotted().getSQL.get,1)})
         |  EXCEPT
         |  (SELECT
         |     DISTINCT caller
@@ -718,7 +729,8 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = CanReach(MutableObj())
+  val q = CanReach(ImmutableObj())
+  println(s"getSQL:\n${q.getSQL.getOrElse("<none>")}")
   val res = q.analyse //AgeOrderedObj().analyse
 
   res.repartition()
@@ -726,6 +738,6 @@ object VertexIdAnalyserTest extends App {
   println(
     s"""analysis took ${watch.stop()}
        |got ${res.count} objects
-       |getSQL: ${q.getSQL}
+       |getSQL:\n${q.getSQL.getOrElse("<none>")}
      """.stripMargin)
 }
