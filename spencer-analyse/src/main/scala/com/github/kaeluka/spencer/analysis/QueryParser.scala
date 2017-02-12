@@ -9,14 +9,14 @@ object QueryParser {
     primitiveObjQuery | parameterisedObjQuery
 
   def connectedWith =
-    P("ReferredFrom("~objQuery~")").map(x => ReferredFrom(x)) |
-      P("RefersTo("~objQuery~")").map(x => RefersTo(x)) |
-      P("HeapReferredFrom("~objQuery~")").map(x => HeapReferredFrom(x)) |
-      P("HeapRefersTo("~objQuery~")").map(x => HeapRefersTo(x)) |
-      P("ReachableFrom("~objQuery~")").map(x => Named(ConnectedWith(x), "ReachableFrom("+x.toString+")")) |
-      P("CanReach("~objQuery~")").map(x => Named(ConnectedWith(x, reverse = true), "CanReach("+x.toString+")")) |
-      P("HeapReachableFrom("~objQuery~")").map(x => Named(ConnectedWith(x, edgeFilter = Some(_ == EdgeKind.FIELD)), "HeapReachableFrom("+x.toString+")")) |
-      P("CanHeapReach("~objQuery~")").map(x => Named(ConnectedWith(x, edgeFilter = Some(_ == EdgeKind.FIELD), reverse = true), "CanHeapReach("+x.toString+")"))
+    P("ReferredFrom("~objQuery~")")       .map(ReferredFrom) |
+      P("RefersTo("~objQuery~")")         .map(RefersTo) |
+      P("HeapReferredFrom("~objQuery~")") .map(HeapReferredFrom) |
+      P("HeapRefersTo("~objQuery~")")     .map(HeapRefersTo) |
+      P("ReachableFrom("~objQuery~")")    .map(ReachableFrom) |
+      P("CanReach("~objQuery~")")         .map(CanReach) |
+      P("HeapReachableFrom("~objQuery~")").map(HeapReachableFrom) |
+      P("CanHeapReach("~objQuery~")")     .map(CanHeapReach)
 
   def deeply =
     P("Deeply("~objQuery~")")
@@ -131,6 +131,23 @@ object QueryParser {
           x
         })
       .map(_.right.get)
+  }
+
+  def wrapQueries(queryCombinator: String, queries: List[VertexIdAnalyser]): List[VertexIdAnalyser] = {
+    //println(s"wrapping: ${queryCombinator}")
+    queries
+      .map(q => s"$queryCombinator(${q.toString})")
+      .map(parseObjQuery)
+      .map(_.right.get)
+  }
+
+  def seriesOfQueries() : List[VertexIdAnalyser] = {
+    var ret: List[VertexIdAnalyser] = primitiveQueries()
+    ret ++
+      wrapQueries("CanReach", ret) ++
+      wrapQueries("CanHeapReach", ret) ++
+      wrapQueries("ReachableFrom", ret) ++
+      wrapQueries("HeapReachableFrom", ret)
   }
 
 }

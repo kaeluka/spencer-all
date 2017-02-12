@@ -400,22 +400,26 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
   }
 
   def getCachedOrRunQuery(query: String, sql: String): ResultSet = {
+    assert(query != null)
+    assert(sql != null)
+    assert(this.conn != null)
     val name = "cache_"+ query.hashCode.toString.replaceAll("-", "_")
     var ret: ResultSet = null
     try {
       ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name;")
+      print("already cached.. ")
     } catch {
       case e: PSQLException =>
         this.conn.commit()
-//        println(
-//          s"""caching query $query into $name, SQL is:
+        print( s"caching into $name.. ")
 //            |--------------------------
 //            |$sql
 //            |--------------------------
 //          """.stripMargin)
 
         this.conn.createStatement().execute(
-          s"CREATE TABLE $name AS $sql")
+          s"CREATE TABLE $name AS $sql ;")
+        this.conn.commit()
         ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name")
     }
     ret
@@ -820,8 +824,8 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
         |DROP FOREIGN TABLE IF EXISTS uses_cstore;
         |
         |CREATE FOREIGN TABLE uses_cstore (
-        |  caller integer,
-        |  callee integer,
+        |  caller bigint,
+        |  callee bigint,
         |  name text,
         |  method text,
         |  kind text,
@@ -844,7 +848,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
   }
 
   def cacheQueries(): Unit = {
-    val qs = QueryParser.primitiveQueries()
+    val qs = QueryParser.seriesOfQueries()
     for (q <- qs) {
       q.getSQL match {
         case Some(sql) =>

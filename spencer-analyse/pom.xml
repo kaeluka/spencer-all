@@ -127,6 +127,10 @@
                             <mainClass>com.github.kaeluka.spencer.SpencerLoad</mainClass>
                             <id>spencer-load</id>
                         </program>
+                        <program>
+                            <mainClass>com.github.kaeluka.spencer.SpencerCache</mainClass>
+                            <id>spencer-cache</id>
+                        </program>
                     </programs>
                 </configuration>
             </plugin>

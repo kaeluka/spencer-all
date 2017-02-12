@@ -356,12 +356,7 @@ case class InstanceOf(klassName: String) extends VertexIdAnalyser {
   override def explanation(): String = "are instances of class "+klassName
 
   override def getSQL: Option[String] = {
-    Some(s"""SELECT
-             |  id
-             |FROM
-             |  objects
-             |WHERE
-             |  klass = '$klassName'""".stripMargin)
+    Some(s"""SELECT id FROM objects WHERE klass = '$klassName'""".stripMargin)
   }
 }
 
@@ -423,8 +418,8 @@ case class Deeply(inner: VertexIdAnalyser,
 
 case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    ???
-//    g.sqlContext.sparkSession.sparkContext.parallelize(value).toDF()
+    import g.sqlContext.implicits._
+    g.sqlContext.sparkSession.sparkContext.parallelize(value).toDF().withColumnRenamed("value", "id")
   }
 
   override def pretty(result: DataFrame): String = {
@@ -434,7 +429,7 @@ case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
   override def explanation(): String = "any of "+value.mkString("{", ", ", "}")
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some(value.mkString("SELECT * FROM (VALUES (", "", s") AS const${Math.abs(this.toString.hashCode)}(id)"))
   }
 }
 
@@ -463,15 +458,16 @@ case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "are field-referring to objects that "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    Some(s"""SELECT
-            |  callee AS id
-            |FROM
-            |  refs
-            |WHERE
-            |  kind = 'field' AND
-            |  callee IN (
-            |    ${inner.getSQL.get}
-            |  )""".stripMargin)
+    inner.getSQL.map(sql =>
+      s"""SELECT
+         |  callee AS id
+         |FROM
+         |  refs
+         |WHERE
+         |  kind = 'field' AND
+         |  callee IN (
+         |    $sql
+         |  )""".stripMargin)
   }
 }
 
@@ -488,14 +484,15 @@ case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "are referring to objects that "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    Some(s"""SELECT
-             |  callee AS id
-             |FROM
-             |  refs
-             |WHERE
-             |  callee IN (
-             |    ${inner.getSQL.get}
-             |  )""".stripMargin)
+    inner.getSQL.map(sql =>
+      s"""SELECT
+         |  callee AS id
+         |FROM
+         |  refs
+         |WHERE
+         |  callee IN (
+         |    $sql
+         |  )""".stripMargin)
   }
 }
 
@@ -513,15 +510,16 @@ case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "are heap-referred to from objects that "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    Some(s"""SELECT
-             |  callee AS id
-             |FROM
-             |  refs
-             |WHERE
-             |  kind = 'field' AND
-             |  caller IN (
-             |    ${inner.getSQL.get}
-             |  )""".stripMargin)
+    inner.getSQL.map(sql =>
+      s"""SELECT
+         |  callee AS id
+         |FROM
+         |  refs
+         |WHERE
+         |  kind = 'field' AND
+         |  caller IN (
+         |    $sql
+         |  )""".stripMargin)
   }
 }
 
@@ -539,15 +537,102 @@ case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def explanation(): String = "are referred to from objects that "+inner.explanation()
 
   override def getSQL: Option[String] = {
-    Some(s"""SELECT
-             |  callee AS id
-             |FROM
-             |  refs
-             |WHERE
-             |  caller IN (
-             |    ${inner.getSQL.get}
-             |  )""".stripMargin)
+    inner.getSQL.map(sql =>
+      s"""SELECT
+         |  callee AS id
+         |FROM
+         |  refs
+         |WHERE
+         |  caller IN (
+         |    $sql
+         |  )""".stripMargin)
   }
+}
+
+case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+  override def getSQL: Option[String] = {
+    inner.getSQL.map(sql =>
+      s"""WITH RECURSIVE heapreachablefrom(id) AS (
+         |    $sql
+         |  UNION
+         |    SELECT
+         |      refs.callee AS id
+         |    FROM refs
+         |    JOIN heapreachablefrom ON heapreachablefrom.id = refs.caller
+         |    WHERE kind = 'field'
+         |)
+         |SELECT id FROM heapreachablefrom""".stripMargin)
+  }
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    ConnectedWith(inner, edgeFilter = Some(_ == EdgeKind.FIELD)).analyse
+  }
+
+  override def explanation(): String = s"are heap-reachable from objects that ${inner.explanation()}"
+}
+
+case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+  override def getSQL: Option[String] = {
+    inner.getSQL.map(sql =>
+      s"""WITH RECURSIVE reachablefrom(id) AS (
+         |    $sql
+         |  UNION
+         |    SELECT
+         |      refs.callee AS id
+         |    FROM refs
+         |    JOIN reachablefrom ON reachablefrom.id = refs.caller
+         |)
+         |SELECT id FROM reachablefrom""".stripMargin)
+  }
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    ConnectedWith(inner).analyse
+  }
+
+  override def explanation(): String = s"are reachable from objects that ${inner.explanation()}"
+}
+
+case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+  override def getSQL: Option[String] = {
+    inner.getSQL.map(sql =>
+      s"""WITH RECURSIVE canheapreach(id) AS (
+         |    $sql
+         |  UNION
+         |    SELECT
+         |      refs.caller AS id
+         |    FROM refs
+         |    JOIN canheapreach ON canheapreach.id = refs.callee
+         |    WHERE kind = 'field'
+         |)
+         |SELECT id FROM canheapreach""".stripMargin)
+  }
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    ConnectedWith(inner, edgeFilter = Some(_ == EdgeKind.FIELD), reverse = true).analyse
+  }
+
+  override def explanation(): String = s"are able to heap-reach objects that ${inner.explanation()}"
+}
+
+case class CanReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+  override def getSQL: Option[String] = {
+    inner.getSQL.map(sql =>
+      s"""WITH RECURSIVE canreach(id) AS (
+         |    ${inner.getSQL.get}
+         |  UNION
+         |    SELECT
+         |      refs.caller AS id
+         |    FROM refs
+         |    JOIN canreach ON canreach.id = refs.callee
+         |)
+         |SELECT id FROM canreach""".stripMargin)
+  }
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    ConnectedWith(inner, reverse = true).analyse
+  }
+
+  override def explanation(): String = s"are able to reach objects that ${inner.explanation()}"
 }
 
 case class ConnectedWith(roots: VertexIdAnalyser
@@ -633,7 +718,7 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = TinyObj()
+  val q = CanReach(MutableObj())
   val res = q.analyse //AgeOrderedObj().analyse
 
   res.repartition()
