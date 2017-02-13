@@ -23,6 +23,12 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
     this.explanation()+":\n"+resString
   }
 
+  /**
+    * Gives a sequence of SQL commands that can pre-cache the results.
+    * @return
+    */
+  def getCacheSQL: Seq[String] = List()
+
   def getSQL: Option[String]
 }
 
@@ -58,6 +64,10 @@ case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   override def explanation(): String = vs.map(_.explanation()).mkString(", and ")
 
   override def toString: String = vs.mkString("And(", " ", ")")
+
+//  override def getCacheSQL: Option[Seq[String]] = {
+//    inner.
+//  }
 
   override def getSQL: Option[String] = {
     val oqueries = vs.map(_.getSQL)
@@ -318,7 +328,35 @@ case class StationaryObj() extends VertexIdAnalyser {
   override def explanation(): String = "are never changed after being read from for the first time"
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    Some("""SELECT id FROM objects
+           |EXCEPT
+           |(SELECT reads.callee id FROM
+           |(
+           |  SELECT
+           |    callee, MIN(idx)
+           |  FROM
+           |    uses_cstore
+           |  WHERE
+           |    callee > 4 AND
+           |    method != '<init>' AND
+           |    (kind = 'fieldload' OR kind = 'read')
+           |  GROUP BY callee
+           |) reads
+           |FULL OUTER JOIN
+           |(
+           |  SELECT
+           |    callee, MAX(idx)
+           |  FROM
+           |    uses_cstore
+           |  WHERE
+           |    callee > 4 AND
+           |    method != '<init>' AND
+           |    (kind = 'fieldstore' OR kind = 'modify')
+           |  GROUP BY callee
+           |) writes
+           |ON reads.callee = writes.callee
+           |WHERE writes.max > reads.min)
+           |""".stripMargin)
   }
 }
 
@@ -729,7 +767,7 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = CanReach(ImmutableObj())
+  val q = StationaryObj()
   println(s"getSQL:\n${q.getSQL.getOrElse("<none>")}")
   val res = q.analyse //AgeOrderedObj().analyse
 
