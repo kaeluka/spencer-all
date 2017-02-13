@@ -445,14 +445,28 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     ret
   }
 
-  override def getPercentage(query: String): Float = {
-    this.getCachedOrRunQuery(s"getPercentages($query)",
-      s"""SELECT
-         |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
-         |FROM
-         |  ($query) counted
-       """.stripMargin)
+  override def getPercentage(query: String): Option[Float] = {
+    QueryParser.parseObjQuery(query) match {
+      case Left(_err) => None
+      case Right(q) =>
+        q.getSQL.map(sql => {
+          val result = this.getCachedOrRunQuery(s"getPercentages($query)",
+          s"""SELECT
+             |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
+             |FROM
+             |  ($sql) counted""".
+            stripMargin)
+          assert(
+            result.next())
+          val ret
+          = result.
+            getFloat(1)
+          result.close()
+          ret
+        })
+    }
   }
+
 
   override def selectFrame(tblName: String, query: String): DataFrame = {
     val eq = QueryParser.parseObjQuery(query)
