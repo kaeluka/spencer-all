@@ -262,11 +262,85 @@ case class NonThreadLocalObj() extends VertexIdAnalyser {
   override def getSQL: Option[String] = {
     Some("""SELECT callee
            |FROM uses_cstore
-           |WHERE callee > 0
+           |WHERE callee > 4
            |GROUP BY callee
            |HAVING COUNT(DISTINCT thread) > 1
            |""".stripMargin)
   }
+}
+
+case class UniqueObj() extends VertexIdAnalyser {
+  override def getSQL: Option[String] = {
+    Some("""SELECT callee FROM
+           |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
+           | FROM (
+           |   (SELECT
+           |      callee, refstart AS time, 1 AS delta
+           |    FROM refs
+           |    WHERE callee > 4) UNION ALL (SELECT
+           |      callee, refend AS time, -1 AS delta
+           |    FROM refs
+           |    WHERE callee > 4)
+           | ) AS steps) AS integrated_steps
+           |GROUP BY callee
+           |HAVING MAX(sum_at_time) = 1""".stripMargin)
+  }
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    MaxInDegree.UniqueObj().analyse
+  }
+
+  override def explanation(): String = "are never aliased"
+}
+
+case class HeapUniqueObj() extends VertexIdAnalyser {
+  override def getSQL: Option[String] = {
+    Some("""SELECT callee FROM
+           |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
+           | FROM (
+           |   (SELECT
+           |      callee, refstart AS time, 1 AS delta
+           |    FROM refs
+           |    WHERE callee > 4 AND kind = 'field') UNION ALL (SELECT
+           |      callee, refend AS time, -1 AS delta
+           |    FROM refs
+           |    WHERE callee > 4 AND kind = 'field')
+           | ) AS steps) AS integrated_steps
+           |GROUP BY callee
+           |HAVING MAX(sum_at_time) = 1""".stripMargin)
+  }
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    MaxInDegree.HeapUniqueObj().analyse
+  }
+
+  override def explanation(): String = "are never aliased"
+}
+
+case class StackBoundObj() extends VertexIdAnalyser {
+  override def getSQL: Option[String] = {
+    Some("""SELECT id FROM objects EXCEPT (SELECT callee FROM
+           |  (SELECT
+           |     callee,
+           |     time,
+           |     SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
+           |   FROM (
+           |     (SELECT callee, refstart AS time, 1 AS delta
+           |      FROM refs
+           |      WHERE callee > 4 AND kind = 'field') UNION ALL (SELECT
+           |        callee, refend AS time, -1 AS delta
+           |      FROM refs
+           |      WHERE callee > 4 AND kind = 'field')
+           |   ) AS steps) AS integrated_steps
+           |GROUP BY callee
+           |HAVING MAX(sum_at_time) > 0)""".stripMargin)
+  }
+
+  override def analyse(implicit g: SpencerDB): DataFrame = {
+    MaxInDegree.StackBoundObj().analyse
+  }
+
+  override def explanation(): String = "are never aliased"
 }
 
 case class ImmutableObj() extends VertexIdAnalyser {
@@ -767,7 +841,7 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = StationaryObj()
+  val q = StackBoundObj()
   println(s"getSQL:\n${q.getSQL.getOrElse("<none>")}")
   val res = q.analyse //AgeOrderedObj().analyse
 
