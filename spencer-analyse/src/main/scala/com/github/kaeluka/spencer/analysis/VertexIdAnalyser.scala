@@ -271,7 +271,7 @@ case class NonThreadLocalObj() extends VertexIdAnalyser {
 
 case class UniqueObj() extends VertexIdAnalyser {
   override def getSQL: Option[String] = {
-    Some("""SELECT callee FROM
+    Some("""SELECT callee AS id FROM
            |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
            | FROM (
            |   (SELECT
@@ -295,7 +295,7 @@ case class UniqueObj() extends VertexIdAnalyser {
 
 case class HeapUniqueObj() extends VertexIdAnalyser {
   override def getSQL: Option[String] = {
-    Some("""SELECT callee FROM
+    Some("""SELECT callee AS id FROM
            |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
            | FROM (
            |   (SELECT
