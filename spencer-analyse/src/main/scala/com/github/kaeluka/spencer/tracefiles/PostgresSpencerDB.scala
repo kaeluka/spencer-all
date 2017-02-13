@@ -445,6 +445,24 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     ret
   }
 
+  override def getPercentage(query: String): Float = {
+    this.getCachedOrRunQuery(s"getPercentages($query)",
+      s"""SELECT
+         |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
+         |FROM
+         |  ($query) counted
+       """.stripMargin)
+  }
+
+  override def selectFrame(tblName: String, query: String): DataFrame = {
+    val eq = QueryParser.parseObjQuery(query)
+    if (eq.isRight) {
+      //FIXME: this is a hack! we should get rid of Spark alltogether
+      eq.right.get.getSQL.foreach(sql => this.getCachedOrRunQuery(query, sql))
+    }
+    super.selectFrame(tblName, query)
+  }
+
   def aproposObject(tag: Long): AproposData = {
     val theObj = selectFrame("objects", s"SELECT klass FROM objects WHERE id == $tag").rdd
 
