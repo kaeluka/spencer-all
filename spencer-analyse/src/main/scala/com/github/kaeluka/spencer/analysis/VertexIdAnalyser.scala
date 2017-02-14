@@ -646,7 +646,7 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = QueryParser.parseObjQuery("And(Obj() Not(ImmutableObj()))").right.get
+  val q = QueryParser.parseObjQuery("MutableObj()").right.get
   println(q.toString)
   println(s"getSQL:\n${q.getSQL}")
   println(s"precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}")

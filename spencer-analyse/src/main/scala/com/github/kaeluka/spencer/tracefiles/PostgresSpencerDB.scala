@@ -431,7 +431,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     ret
   }
 
-  override def getCachedOrDo(query: String, f: () => DataFrame): DataFrame = {
+  def getCachedOrDo(query: String, f: () => DataFrame): DataFrame = {
     val name = "cache_"+ query.hashCode.toString.replaceAll("-", "_")
     var ret : DataFrame = null
     try {
@@ -451,7 +451,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     ret
   }
 
-  def getClassPercentage(query: String): Option[Float] = {
+  def getObjPercentage(query: String): Option[Float] = {
     QueryParser.parseObjQuery(query) match {
       case Left(_err) => None
       case Right(q) =>
@@ -470,22 +470,38 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     }
   }
 
-  override def getPercentage(query: String): Option[Float] = {
+  def getClassPercentage(query: String, minInstances: Int = 30): Option[Seq[(String, Float)]] = {
     QueryParser.parseObjQuery(s"And(Obj() $query)") match {
       case Left(_err) => None
       case Right(q) =>
-        val cacheKey = "cache_perc_"+(s"getPercentages($q)".hashCode.toString.replace("-","_")
+        val cacheKey = "cache_perc_"+(s"getPercentages($q)".hashCode.toString.replace("-","_"))
         println(s"caching percentage of $query into $cacheKey")
         this.prepareCaches(q.precacheInnersSQL)
         this.getCachedOrRunQuery(q).close()
         val result = this.getCachedOrRunSQL(cacheKey,
-          s"""SELECT
-              |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
-              |FROM
-              |  (${q.getCacheSQL}) counted""".
-            stripMargin)
-        assert(result.next())
-        val ret = result.getFloat(1)
+          s"""
+             |SELECT
+             |  filtered.klass,
+             |  ROUND(100.0*npassed/ntotal,2) AS percentage
+             |FROM
+             |((SELECT objects.klass, COUNT(objects.id) npassed
+             |FROM   objects
+             |JOIN
+             |(
+             |  ${q.getCacheSQL}
+             |) AS counted
+             |ON objects.id = counted.id
+             |GROUP BY klass) filtered
+             |JOIN (SELECT klass, COUNT(id) ntotal
+             |      FROM objects
+             |      GROUP BY klass) total
+             |ON filtered.klass = total.klass)
+             |WHERE npassed >= $minInstances""".stripMargin)
+        val ret = collection.mutable.ListBuffer[(String, Float)]()
+        while (result.next) {
+          ret.append((result.getString(1), result.getFloat(2)))
+        }
+
         result.close()
         Some(ret)
     }

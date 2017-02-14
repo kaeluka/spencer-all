@@ -87,8 +87,6 @@ trait SpencerDB {
     this.sqlContext.sql(sql)
   }
 
-  def getPercentage(query: String) : Option[Float]
-
   def getCachedOrDo(name: String, f: () => DataFrame) : DataFrame
 
   def getFrame(name: String): DataFrame
