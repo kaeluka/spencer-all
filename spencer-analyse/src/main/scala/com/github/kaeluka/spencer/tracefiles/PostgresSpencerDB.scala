@@ -451,6 +451,25 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     ret
   }
 
+  def getClassPercentage(query: String): Option[Float] = {
+    QueryParser.parseObjQuery(query) match {
+      case Left(_err) => None
+      case Right(q) =>
+        this.prepareCaches(q.precacheInnersSQL)
+        this.getCachedOrRunQuery(q).close()
+        val result = this.getCachedOrRunSQL(s"getPercentages($query)".hashCode.toString.replace("-","_"),
+          s"""SELECT
+              |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
+              |FROM
+              |  (${q.getCacheSQL}) counted""".
+            stripMargin)
+        assert(result.next())
+        val ret = result.getFloat(1)
+        result.close()
+        Some(ret)
+    }
+  }
+
   override def getPercentage(query: String): Option[Float] = {
     QueryParser.parseObjQuery(query) match {
       case Left(_err) => None

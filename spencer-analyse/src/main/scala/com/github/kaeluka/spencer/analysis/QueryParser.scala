@@ -53,7 +53,7 @@ object QueryParser {
     P("And("~objQuery.rep(2, sep=" ")~")").map(xs => And(xs))
 
   def isNot =
-    P("Not("~objQuery~")").map(q => Named(IsNot(q), s"Not(${q.toString})"))
+    P("Not("~objQuery~")").map(q => Not(q))
 
   def parameterisedObjQuery : P[VertexIdAnalyser] =
     connectedWith | deeply | instanceOfKlass | allocatedAt | constSet | isNot | bigAnd | bigOr
