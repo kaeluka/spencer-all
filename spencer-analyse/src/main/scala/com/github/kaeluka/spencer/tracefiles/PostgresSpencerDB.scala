@@ -415,20 +415,17 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     assert(cacheKey != null)
     assert(sql != null)
     assert(this.conn != null)
-    val name = "cache_"+ cacheKey.hashCode.toString.replaceAll("-", "_")
     var ret: ResultSet = null
     try {
-      ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name;")
-      print(s"$cacheKey: already cached in $name.. ")
+      ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $cacheKey;")
     } catch {
       case e: PSQLException =>
         this.conn.commit()
-        print( s"${cacheKey}: caching into $name.. ")
 
         this.conn.createStatement().execute(
-          s"CREATE TABLE $name AS $sql ;")
+          s"CREATE TABLE $cacheKey AS $sql ;")
         this.conn.commit()
-        ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name")
+        ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $cacheKey")
     }
     ret
   }
@@ -459,7 +456,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
       case Right(q) =>
         this.prepareCaches(q.precacheInnersSQL)
         this.getCachedOrRunQuery(q).close()
-        val result = this.getCachedOrRunSQL(s"getPercentages($query)",
+        val result = this.getCachedOrRunSQL(s"getPercentages($query)".hashCode.toString.replace("-","_"),
           s"""SELECT
               |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
               |FROM
