@@ -417,15 +417,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     } catch {
       case e: PSQLException =>
         this.conn.commit()
-<<<<<<< Updated upstream
-        print( s"due to $e: caching into $name.. ")
-=======
         print( s"${query}: caching into $name.. ")
-//            |--------------------------
-//            |$sql
-//            |--------------------------
-//          """.stripMargin)
->>>>>>> Stashed changes
 
         this.conn.createStatement().execute(
           s"CREATE TABLE $name AS $sql ;")
