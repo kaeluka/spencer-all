@@ -422,8 +422,9 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
       case e: PSQLException =>
         this.conn.commit()
 
+        //println(s"CREATE TABLE IF NOT EXISTS $cacheKey AS $sql ;")
         this.conn.createStatement().execute(
-          s"CREATE TABLE $cacheKey AS $sql ;")
+          s"CREATE TABLE IF NOT EXISTS $cacheKey AS $sql ;")
         this.conn.commit()
         ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $cacheKey")
     }
@@ -456,7 +457,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
       case Right(q) =>
         this.prepareCaches(q.precacheInnersSQL)
         this.getCachedOrRunQuery(q).close()
-        val result = this.getCachedOrRunSQL(s"getPercentages($query)".hashCode.toString.replace("-","_"),
+        val result = this.getCachedOrRunSQL("cache_"+(s"getPercentages($query)".hashCode.toString.replace("-","_")),
           s"""SELECT
               |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
               |FROM
