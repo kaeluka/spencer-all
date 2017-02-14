@@ -15,8 +15,8 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
 
   override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
     g.prepareCaches(this.precacheInnersSQL)
-    g.getCachedOrRunSQL(this.toString, this.getSQLUsingCache)
-    g.selectFrame(this.cacheKey, s"SELECT id FROM ${this.cacheKey}")
+    g.getCachedOrRunQuery(this)
+    g.selectFrame(this.cacheKey, this.getCacheSQL)
   }
 
   override def pretty(result: DataFrame): String = {
