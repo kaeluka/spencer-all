@@ -319,34 +319,16 @@ case class StationaryObj() extends VertexIdAnalyser {
   override def explanation(): String = "are never changed after being read from for the first time"
 
   override def getSQLBlueprint = {
-    """SELECT id FROM objects
-      |EXCEPT
-      |(SELECT reads.callee id FROM
-      |(
-      |  SELECT
-      |    callee, MIN(idx)
-      |  FROM
-      |    uses_cstore
-      |  WHERE
-      |    callee > 4 AND
-      |    method != '<init>' AND
-      |    (kind = 'fieldload' OR kind = 'read')
-      |  GROUP BY callee
-      |) reads
-      |FULL OUTER JOIN
-      |(
-      |  SELECT
-      |    callee, MAX(idx)
-      |  FROM
-      |    uses_cstore
-      |  WHERE
-      |    callee > 4 AND
-      |    method != '<init>' AND
-      |    (kind = 'fieldstore' OR kind = 'modify')
-      |  GROUP BY callee
-      |) writes
-      |ON reads.callee = writes.callee
-      |WHERE writes.max > reads.min)
+    """SELECT idx, caller, callee, kind
+      |FROM uses_cstore read
+      |WHERE callee > 4
+      |AND   (kind = 'fieldload' OR kind = 'read')
+      |AND   EXISTS (SELECT 1
+      |              -- cstore would be worse for random lookup!
+      |              FROM   uses store
+      |              WHERE  store.callee = read.callee
+      |              AND    (kind = 'fieldstore' OR kind = 'modify')
+      |              AND    store.idx > read.idx)
       |""".stripMargin
   }
 }
@@ -640,9 +622,9 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = StackBoundObj()
+  val q = StationaryObj()
   println(s"getSQL:\n${q.getSQL}")
-  println(s"cacheSQL:\n${q.precacheInnersSQL.mkString("\n")}")
+  println(s"precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}")
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
   println(s"getCacheSQL: ${q.getCacheSQL}")
   val res = q.analyse //AgeOrderedObj().analyse
@@ -653,6 +635,6 @@ object VertexIdAnalyserTest extends App {
     s"""analysis took ${watch.stop()}
        |got ${res.count} objects
        |getSQL:\n${q.getSQL}
-       |cacheSQL:\n${q.precacheInnersSQL.mkString("\n")}
+       |precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}
        |getSQLUsingCache:\n${q.getSQLUsingCache}""".stripMargin)
 }
