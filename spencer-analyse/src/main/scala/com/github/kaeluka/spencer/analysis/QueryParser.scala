@@ -147,7 +147,9 @@ object QueryParser {
       wrapQueries("CanReach", ret) ++
       wrapQueries("CanHeapReach", ret) ++
       wrapQueries("ReachableFrom", ret) ++
-      wrapQueries("HeapReachableFrom", ret)
+      wrapQueries("HeapReachableFrom", ret) ++
+      wrapQueries("Deeply", ret) ++
+      wrapQueries("HeapDeeply", ret)
   }
 
 }
