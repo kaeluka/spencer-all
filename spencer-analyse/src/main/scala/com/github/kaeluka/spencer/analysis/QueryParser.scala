@@ -113,7 +113,7 @@ object QueryParser {
   def primitiveQueries(klass: String = "java.lang.String", allocationSite: String = "String.java:1933") : List[VertexIdAnalyser] = {
     List("MutableObj()",
       "ImmutableObj()",
-      "StationaryObj()",
+//      "StationaryObj()",
       "UniqueObj()",
       "HeapUniqueObj()",
       "TinyObj()",
