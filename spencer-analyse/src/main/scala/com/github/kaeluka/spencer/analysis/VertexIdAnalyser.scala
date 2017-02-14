@@ -315,8 +315,17 @@ case class ImmutableObj() extends VertexIdAnalyser {
 }
 
 case class StationaryObj() extends VertexIdAnalyser {
+  override def getSQLBlueprint = {
+    IsNot(NonStationaryObj()).getSQLBlueprint
+  }
 
-  override def explanation(): String = "are never changed after being read from for the first time"
+  override def explanation(): String = "are never changed after being read from"
+}
+
+
+case class NonStationaryObj() extends VertexIdAnalyser {
+
+  override def explanation(): String = "are changed after being read from"
 
   override def getSQLBlueprint = {
     """SELECT idx, caller, callee, kind
