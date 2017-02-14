@@ -474,7 +474,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     QueryParser.parseObjQuery(s"And(Obj() $query)") match {
       case Left(_err) => None
       case Right(q) =>
-        val cacheKey = "cache_perc_"+(s"getPercentages($q)".hashCode.toString.replace("-","_"))
+        val cacheKey = s"cache_perc_n${minInstances}_"+(s"getPercentages($q)".hashCode.toString.replace("-","_"))
         println(s"caching percentage of $query into $cacheKey")
         this.prepareCaches(q.precacheInnersSQL)
         this.getCachedOrRunQuery(q).close()
