@@ -13,6 +13,12 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
     SnapshottedVertexIdAnalyser(this)
   }
 
+  override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
+    g.prepareCaches(this.precacheInnersSQL)
+    g.getCachedOrRunSQL(this.toString, this.getSQLUsingCache)
+    g.selectFrame(this.cacheKey, s"SELECT id FROM ${this.cacheKey}")
+  }
+
   override def pretty(result: DataFrame): String = {
     val N = result.count()
     val resString = if (N > 100) {
@@ -29,7 +35,7 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
     */
   def getInners: Seq[VertexIdAnalyser] = List()
 
-  def cacheSQL = {
+  def precacheInnersSQL = {
     val x = getInners.map({
       inner =>
         s"""CREATE TABLE IF NOT EXISTS ${inner.cacheKey} AS (
@@ -89,10 +95,6 @@ object And {
 }
 
 case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    val analysed = vs.map(_.analyse)
-    analysed.reduce(_.join(_, "id"))
-  }
 
   override def explanation(): String = vs.map(_.explanation()).mkString(", and ")
 
@@ -100,8 +102,8 @@ case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
 
   override def getInners = vs
 
-  override def cacheSQL: Seq[String] = {
-    vs.flatMap(_.cacheSQL)
+  override def precacheInnersSQL: Seq[String] = {
+    vs.flatMap(_.precacheInnersSQL)
   }
 
   override def getSQLBlueprint: String = {
@@ -125,13 +127,6 @@ object Or {
 }
 
 case class _Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    if (vs.contains(Obj())) {
-      Obj().analyse
-    } else {
-      vs.map(_.analyse).reduce(_ union _).distinct()
-    }
-  }
 
   override def explanation(): String = vs.map(_.explanation()).mkString(", or ")
 
@@ -145,14 +140,6 @@ case class _Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
 }
 
 case class SnapshottedVertexIdAnalyser(inner : VertexIdAnalyser) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    assert(! inner.isInstanceOf[SnapshottedVertexIdAnalyser])
-    println(s"analysing snapshotted ${this.toString}")
-    val f = () => inner.analyse(g)
-
-    g.getCachedOrDo(inner.toString, f)
-    //f()
-  }
 
   override def snapshotted(): VertexIdAnalyser = this
 
@@ -173,14 +160,6 @@ case class SnapshottedVertexIdAnalyser(inner : VertexIdAnalyser) extends VertexI
   */
 case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
-    AgeOfNeighbours().snapshotted().analyse
-      .groupBy("id", "firstusage")
-      .agg(min($"calleefirstusage"), $"firstusage")
-      .where($"min(calleefirstusage)" > $"firstusage").select("id") union TinyObj().snapshotted().analyse
-  }
-
   override def explanation(): String = {
     "are only holding field references to objects created after them"
   }
@@ -198,14 +177,6 @@ case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
   * them
   */
 case class AgeOrderedObj() extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
-//    AgeOfNeighbours().snapshotted().analyse.show()
-    AgeOfNeighbours().snapshotted().analyse
-      .groupBy("id", "firstusage")
-      .agg(max($"calleefirstusage"), $"firstusage")
-      .where($"max(calleefirstusage)" < $"firstusage").select("id") union TinyObj().snapshotted().analyse
-  }
 
   override def explanation(): String = {
     "are only holding field references to objects created before them"
@@ -220,10 +191,6 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
 }
 
 case class AgeOfNeighbours() extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.getFrame("refs").createOrReplaceTempView("refs")
-    g.selectFrame("objects",getSQLBlueprint)
-  }
 
   override def explanation(): String = "Age"
 
@@ -241,14 +208,6 @@ case class AgeOfNeighbours() extends VertexIdAnalyser {
 }
 
 case class MutableObj() extends VertexIdAnalyser {
-
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    val ret = g.selectFrame("uses_cstore", getSQLBlueprint)
-      .withColumnRenamed("callee", "id")
-      .repartition(1000)
-    println(s"partitions in ${this.toString}: ${ret.rdd.partitions.length}")
-    ret
-  }
 
   override def explanation(): String = "are changed outside their constructor"
 
@@ -269,10 +228,6 @@ object ThreadLocalObj {
 }
 
 case class NonThreadLocalObj() extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("uses_cstore", getSQLBlueprint)
-      .withColumnRenamed("callee", "id")
-  }
 
   override def explanation(): String = "are changed outside their constructor"
 
@@ -303,10 +258,6 @@ case class UniqueObj() extends VertexIdAnalyser {
       |HAVING MAX(sum_at_time) = 1""".stripMargin
   }
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    ??? //MaxInDegree.UniqueObj().analyse
-  }
-
   override def explanation(): String = "are never aliased"
 }
 
@@ -325,10 +276,6 @@ case class HeapUniqueObj() extends VertexIdAnalyser {
       | ) AS steps) AS integrated_steps
       |GROUP BY callee
       |HAVING MAX(sum_at_time) = 1""".stripMargin
-  }
-
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    ??? //MaxInDegree.HeapUniqueObj().analyse
   }
 
   override def explanation(): String = "are never aliased"
@@ -353,28 +300,10 @@ case class StackBoundObj() extends VertexIdAnalyser {
       |HAVING MAX(sum_at_time) > 0)""".stripMargin
   }
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    ??? //MaxInDegree.StackBoundObj().analyse
-  }
-
   override def explanation(): String = "are never aliased"
 }
 
 case class ImmutableObj() extends VertexIdAnalyser {
-
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    print("ImmutableObj: analyse Obj..")
-    val objects = Obj().snapshotted().analyse.select("id")
-    println("done")
-
-    print("ImmutableObj: analyse MutableObj.. analyse Obj().except..")
-    val immutableIDs = objects.except(MutableObj().snapshotted().analyse.select("id"))
-    println("done")
-    print("ImmutableObj: join..")
-    val res = objects.join(immutableIDs, usingColumn = "id")
-    println("done")
-    res
-  }
 
   override def explanation(): String = "are never changed outside their constructor"
 
@@ -386,37 +315,6 @@ case class ImmutableObj() extends VertexIdAnalyser {
 }
 
 case class StationaryObj() extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
-    val firstReads = g.selectFrame("uses_cstore",
-      """SELECT
-        |  callee, MIN(idx)
-        |FROM
-        |  uses_cstore
-        |WHERE
-        |  callee > 4 AND
-        |  method != '<init>' AND
-        |  (kind = 'fieldload' OR kind = 'read')
-        |GROUP BY callee
-        |""".stripMargin).withColumnRenamed("min(idx)", "firstRead")
-
-    val lastWrites = g.selectFrame("uses_cstore",
-        """SELECT
-          |  callee, MAX(idx)
-          |FROM
-          |  uses_cstore
-          |WHERE
-          |  callee > 4 AND
-          |  method != '<init>' AND
-          |  (kind = 'fieldstore' OR kind = 'modify')
-          |GROUP BY callee
-          |""".stripMargin).withColumnRenamed("max(idx)", "lastWrite")
-
-    val joined = firstReads.join(lastWrites, "callee").withColumnRenamed("callee", "id")
-    val writeAfterRead = joined.filter($"lastWrite" > $"firstRead")
-
-    Obj().snapshotted().analyse.select("id").join(writeAfterRead, List("id"), "left_anti")
-  }
 
   override def explanation(): String = "are never changed after being read from for the first time"
 
@@ -455,10 +353,6 @@ case class StationaryObj() extends VertexIdAnalyser {
 
 case class Obj() extends VertexIdAnalyser {
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("objects", getSQLBlueprint)
-  }
-
   override def explanation(): String = "were traced"
 
   override def getSQLBlueprint = {
@@ -467,10 +361,6 @@ case class Obj() extends VertexIdAnalyser {
 }
 
 case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser {
-
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("objects", getSQLBlueprint)
-  }
 
   override def toString: String = {
     "AllocatedAt("+allocationSite._1+":"+allocationSite._2.toString+")"
@@ -490,10 +380,6 @@ case class InstanceOf(klassName: String) extends VertexIdAnalyser {
   def this(klass: Class[_]) =
     this(klass.getName)
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("objects", getSQLBlueprint)
-  }
-
   override def explanation(): String = "are instances of class "+klassName
 
   override def getSQLBlueprint = {
@@ -502,9 +388,6 @@ case class InstanceOf(klassName: String) extends VertexIdAnalyser {
 }
 
 case class IsNot(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    Obj().snapshotted().analyse.join(inner.analyse, List("id"), "left_anti")
-  }
 
   override def explanation(): String = "not "+inner.explanation()
 
@@ -528,8 +411,6 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
   def this(inner: VertexIdAnalyser, name: String) =
     this(inner, name, inner.explanation())
 
-  override def analyse(implicit g: SpencerDB): DataFrame = inner.analyse
-
   override def pretty(result: DataFrame): String = inner.pretty(result)
 
   override def toString: String = name
@@ -545,13 +426,6 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
 
 case class Deeply(inner: VertexIdAnalyser,
                   edgeFilter : Option[EdgeKind] = None) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    val allObjs = Obj().analyse
-    val negativeRoots = allObjs.join(inner.analyse, List("id"), "left_anti")
-    val reachingNegativeRoots = ConnectedWith(Const(negativeRoots), reverse = true, edgeFilter.map(k => _ == k))
-    IsNot(reachingNegativeRoots).analyse
-  }
-
   override def explanation(): String = {
     inner.explanation()+", and the same is true for all reachable objects"
   }
@@ -568,7 +442,7 @@ case class Deeply(inner: VertexIdAnalyser,
 }
 
 case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
+  override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
     import g.sqlContext.implicits._
     g.sqlContext.sparkSession.sparkContext.parallelize(value).toDF().withColumnRenamed("value", "id")
   }
@@ -585,7 +459,7 @@ case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
 }
 
 case class Const(value: DataFrame) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB):DataFrame = value
+  override def analyse(implicit g: PostgresSpencerDB):DataFrame = value
 
   override def pretty(result: DataFrame): String = this.toString
 
@@ -597,14 +471,6 @@ case class Const(value: DataFrame) extends VertexIdAnalyser {
 }
 
 case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    val roots = inner.analyse
-    g
-      .selectFrame("refs", "SELECT caller, callee AS id FROM refs WHERE kind = 'field'")
-      .join(roots, List("id"), "leftsemi")
-      .select("caller")
-      .withColumnRenamed("caller", "id")
-  }
 
   override def explanation(): String = "are field-referring to objects that "+inner.explanation()
 
@@ -624,14 +490,6 @@ case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 }
 
 case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    val roots = inner.analyse
-    g
-      .selectFrame("refs", "SELECT caller, callee AS id FROM refs")
-      .join(roots, List("id"), "leftsemi")
-      .select("caller")
-      .withColumnRenamed("caller", "id")
-  }
 
   override def explanation(): String = "are referring to objects that "+inner.explanation()
 
@@ -650,15 +508,6 @@ case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 }
 
 case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    val roots = inner.analyse
-    g
-      .selectFrame("refs", "SELECT caller, callee FROM refs WHERE kind = 'field'")
-      .withColumnRenamed("caller", "id")
-      .join(roots, List("id"), "leftsemi")
-      .select("callee")
-      .withColumnRenamed("callee", "id")
-  }
 
   override def explanation(): String = "are heap-referred to from objects that "+inner.explanation()
 
@@ -678,15 +527,6 @@ case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 }
 
 case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    val roots = inner.analyse
-    g
-      .selectFrame("refs", "SELECT caller, callee FROM refs")
-      .withColumnRenamed("caller", "id")
-      .join(roots, List("id"), "leftsemi")
-      .select("callee")
-      .withColumnRenamed("callee", "id")
-  }
 
   override def explanation(): String = "are referred to from objects that "+inner.explanation()
 
@@ -720,10 +560,6 @@ case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
        |SELECT id FROM heapreachablefrom""".stripMargin
   }
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    ConnectedWith(inner, edgeFilter = Some(_ == EdgeKind.FIELD)).analyse
-  }
-
   override def explanation(): String = s"are heap-reachable from objects that ${inner.explanation()}"
 }
 
@@ -740,10 +576,6 @@ case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
        |    JOIN reachablefrom ON reachablefrom.id = refs.caller
        |)
        |SELECT id FROM reachablefrom""".stripMargin
-  }
-
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    ConnectedWith(inner).analyse
   }
 
   override def explanation(): String = s"are reachable from objects that ${inner.explanation()}"
@@ -765,10 +597,6 @@ case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
        |SELECT id FROM canheapreach""".stripMargin
   }
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    ConnectedWith(inner, edgeFilter = Some(_ == EdgeKind.FIELD), reverse = true).analyse
-  }
-
   override def explanation(): String = s"are able to heap-reach objects that ${inner.explanation()}"
 }
 
@@ -787,76 +615,10 @@ case class CanReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
        |SELECT id FROM canreach""".stripMargin
   }
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    ConnectedWith(inner, reverse = true).analyse
-  }
-
   override def explanation(): String = s"are able to reach objects that ${inner.explanation()}"
 }
 
-case class ConnectedWith(roots: VertexIdAnalyser
-                         , reverse : Boolean = false
-                         , edgeFilter : Option[EdgeKind => Boolean] = None) extends VertexIdAnalyser {
-
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
-    val rootsAnalysed = roots.analyse
-    val rootsCollected = rootsAnalysed.select("id").as[Long].collect().toSet
-
-    val empty = Set().asInstanceOf[Set[VertexId]]
-    val mappedGraph = g.getGraph()
-      .mapVertices { case (vertexId, objDesc) =>
-
-        rootsCollected.contains(vertexId.asInstanceOf[Long])
-      }
-
-    val subgraph = edgeFilter match {
-      case Some(epred) => mappedGraph.subgraph(epred = triplet => epred(triplet.attr.kind))
-      case None => mappedGraph
-    }
-
-    val directionCorrectedGraph = if (reverse) subgraph.reverse else subgraph
-
-    val computed = directionCorrectedGraph
-      .pregel(
-        initialMsg = false
-      )(
-        vprog = {
-          case (vertexId, isReached, reachedNow) =>
-            isReached || reachedNow
-        },
-        sendMsg =  triplet => {
-          if (!triplet.dstAttr && triplet.srcAttr) {
-            Iterator((triplet.dstId, true))
-          } else {
-            Iterator.empty
-          }
-        },
-        mergeMsg = _ && _)
-    computed
-      .vertices
-      .filter(_._2)
-      .map(_._1).toDF.withColumnRenamed("value", "id")
-  }
-
-  override def explanation(): String = if (reverse) {
-    "can reach any objects that "+roots.explanation()
-  } else {
-    "are reachable from objects that "+roots.explanation()
-  }
-
-  override def getInners = List(roots)
-
-  override def getSQLBlueprint = {
-    ???
-  }
-}
-
 case class TinyObj() extends VertexIdAnalyser {
-  override def analyse(implicit g: SpencerDB): DataFrame = {
-    val withRefTypeFields = g.selectFrame("refs", "SELECT DISTINCT caller FROM refs WHERE kind = 'field'").withColumnRenamed("caller", "id")
-    Obj().snapshotted().analyse.join(withRefTypeFields, List("id"), "left_anti")
-  }
 
   override def explanation(): String = "do not have or do not use reference type fields"
 
@@ -874,14 +636,15 @@ case class TinyObj() extends VertexIdAnalyser {
 
 object VertexIdAnalyserTest extends App {
 
-  implicit val db: SpencerDB = new PostgresSpencerDB("test")
+  implicit val db: PostgresSpencerDB = new PostgresSpencerDB("test")
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = HeapRefersTo(ImmutableObj())
+  val q = StackBoundObj()
   println(s"getSQL:\n${q.getSQL}")
-  println(s"cacheSQL:\n${q.cacheSQL.mkString("\n")}")
+  println(s"cacheSQL:\n${q.precacheInnersSQL.mkString("\n")}")
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
+  println(s"getCacheSQL: ${q.getCacheSQL}")
   val res = q.analyse //AgeOrderedObj().analyse
 
   res.repartition()
@@ -890,6 +653,6 @@ object VertexIdAnalyserTest extends App {
     s"""analysis took ${watch.stop()}
        |got ${res.count} objects
        |getSQL:\n${q.getSQL}
-       |cacheSQL:\n${q.cacheSQL.mkString("\n")}
+       |cacheSQL:\n${q.precacheInnersSQL.mkString("\n")}
        |getSQLUsingCache:\n${q.getSQLUsingCache}""".stripMargin)
 }

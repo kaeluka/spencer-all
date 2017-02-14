@@ -13,7 +13,7 @@ import org.objectweb.asm.util.TraceClassVisitor
 import scala.language.implicitConversions
 
 trait SpencerAnalyser[T] {
-  def analyse(implicit g: SpencerDB) : T
+  def analyse(implicit g: PostgresSpencerDB) : T
   def pretty(result: T): String
   def explanation(): String
 }
@@ -32,7 +32,7 @@ object SpencerAnalyserUtil {
 }
 
 case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
-  override def analyse(implicit g: SpencerDB): Option[String] = {
+  override def analyse(implicit g: PostgresSpencerDB): Option[String] = {
     import g.sqlContext.implicits._
     val result =
       g.selectFrame("classdumps", s"SELECT bytecode FROM classdumps WHERE classname = '$klass'").as[Array[Byte]].rdd
@@ -55,70 +55,12 @@ case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
   override def explanation(): String = "shows the source code of a class"
 }
 
-case class Timed[T](inner: SpencerAnalyser[T]) extends SpencerAnalyser[T] {
-  private val duration : Stopwatch = Stopwatch.createUnstarted()
-
-  override def analyse(implicit g: SpencerDB): T = {
-    duration.start()
-    val ret = inner.analyse(g)
-    duration.stop()
-    ret
-  }
-
-  override def pretty(result: T): String = {
-    duration.start()
-    val iPretty = inner.pretty(result)
-    duration.stop()
-    this.toString+":\n"+iPretty
-  }
-
-  override def toString: String = {
-      inner.toString + " (took "+duration.toString+")"
-  }
-
-  override def explanation(): String = inner.explanation()
-}
-
-case class LifeTime(inner: VertexIdAnalyser) extends SpencerAnalyser[RDD[(VertexId, (Long, Long))]] {
-
-  override def analyse(implicit g: SpencerDB): RDD[(VertexId, (Long, Long))] = {
-    import g.sqlContext.implicits._
-    //FIXME: uses collect
-    val innerRes = inner.analyse.toDF("id")
-    g.selectFrame("objects", "SELECT id, firstusage, lastusage FROM objects")
-      .where($"id" isin innerRes).as[(Long, (Long, Long))].rdd
-//    g.db.getTable("objects")
-//        .select("id", "firstusage", "lastusage")
-//        .where("id IN ?", inner.analyse.collect().toList)
-//        .map(row => (row.getLong("id"), (row.getLong("firstusage"), row.getLong("lastusage"))))
-
-  }
-
-  override def pretty(result: RDD[(VertexId, (Long, Long))]): String = {
-    "Lifetimes:\n\t"+result.collect().mkString(", ")
-  }
-
-  override def explanation(): String = "shows the first and last times objects were used"
-}
-
-case class Collect[T](inner : SpencerAnalyser[RDD[T]]) extends SpencerAnalyser[Array[T]] {
-  override def analyse(implicit g: SpencerDB): Array[T] = {
-    inner.analyse.collect()
-  }
-
-  override def pretty(result: Array[T]): String = {
-    this.toString+":\n\t"+result.mkString("[ ", ", ", " ]")
-  }
-
-  override def explanation(): String = inner.explanation()
-}
-
 object Scratch extends App {
 
   run
 
   def run(): Unit = {
-    implicit val db: SpencerDB = new PostgresSpencerDB("test")
+    implicit val db: PostgresSpencerDB = new PostgresSpencerDB("test")
     db.connect()
 
     val watch: Stopwatch = Stopwatch.createStarted()

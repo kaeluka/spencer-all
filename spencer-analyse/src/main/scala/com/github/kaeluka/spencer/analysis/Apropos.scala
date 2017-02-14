@@ -1,9 +1,10 @@
 package com.github.kaeluka.spencer.analysis
+import com.github.kaeluka.spencer.PostgresSpencerDB
 import org.apache.spark.graphx.VertexId
 
 
 case class Apropos(id: VertexId) extends SpencerAnalyser[AproposData] {
-  override def analyse(implicit g: SpencerDB): AproposData = {
+  override def analyse(implicit g: PostgresSpencerDB): AproposData = {
     g.aproposObject(id)
   }
 

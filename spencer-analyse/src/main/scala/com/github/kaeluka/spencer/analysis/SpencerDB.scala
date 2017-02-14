@@ -80,10 +80,11 @@ trait SpencerDB {
 
   def aproposObject(tag: Long): AproposData
 
-  def selectFrame(tblName: String, query : String) : DataFrame = {
+  def selectFrame(tblName: String, sql : String) : DataFrame = {
     val f = getFrame(tblName)
     f.createOrReplaceTempView(tblName)
-    this.sqlContext.sql(query)
+    println(s"sql:\n$sql")
+    this.sqlContext.sql(sql)
   }
 
   def getPercentage(query: String) : Option[Float]

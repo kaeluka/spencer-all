@@ -405,19 +405,25 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
       this.conn.commit()
     })
   }
-  def getCachedOrRunQuery(query: String, sql: String): ResultSet = {
-    assert(query != null)
+
+  def getCachedOrRunQuery(query: VertexIdAnalyser): ResultSet = {
+    this.prepareCaches(query.precacheInnersSQL)
+    this.getCachedOrRunSQL(query.cacheKey, query.getSQLUsingCache)
+  }
+
+  def getCachedOrRunSQL(cacheKey: String, sql: String): ResultSet = {
+    assert(cacheKey != null)
     assert(sql != null)
     assert(this.conn != null)
-    val name = "cache_"+ query.hashCode.toString.replaceAll("-", "_")
+    val name = "cache_"+ cacheKey.hashCode.toString.replaceAll("-", "_")
     var ret: ResultSet = null
     try {
       ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name;")
-      println(s"$query: already cached in $name.. done")
+      println(s"$cacheKey: already cached in $name.. done")
     } catch {
       case e: PSQLException =>
         this.conn.commit()
-        print( s"${query}: caching into $name.. ")
+        print( s"${cacheKey}: caching into $name.. ")
 
         this.conn.createStatement().execute(
           s"CREATE TABLE $name AS $sql ;")
@@ -452,12 +458,13 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     QueryParser.parseObjQuery(query) match {
       case Left(_err) => None
       case Right(q) =>
-        this.prepareCaches(q.cacheSQL)
-        val result = this.getCachedOrRunQuery(s"getPercentages($query)",
+        this.prepareCaches(q.precacheInnersSQL)
+        this.getCachedOrRunQuery(q).close()
+        val result = this.getCachedOrRunSQL(s"getPercentages($query)",
           s"""SELECT
               |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
               |FROM
-              |  (${q.getSQLUsingCache}) counted""".
+              |  (${q.getCacheSQL}) counted""".
             stripMargin)
         assert(result.next())
         val ret = result.getFloat(1)
@@ -467,13 +474,13 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
   }
 
 
-  override def selectFrame(tblName: String, query: String): DataFrame = {
-    val eq = QueryParser.parseObjQuery(query)
+  override def selectFrame(tblName: String, sql: String): DataFrame = {
+    val eq = QueryParser.parseObjQuery(sql)
     if (eq.isRight) {
       //FIXME: this is a hack! we should get rid of Spark alltogether
-      this.getCachedOrRunQuery(query, eq.right.get.getSQL)
+      this.getCachedOrRunQuery(eq.right.get).close()
     }
-    super.selectFrame(tblName, query)
+    super.selectFrame(tblName, sql)
   }
 
   def aproposObject(tag: Long): AproposData = {
@@ -883,8 +890,8 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     for (q <- qs) {
       val time = Stopwatch.createStarted()
       print(s"pre caching $q.. ")
-      this.prepareCaches(q.cacheSQL)
-      val res = this.getCachedOrRunQuery(q.toString, q.getSQLUsingCache)
+      this.prepareCaches(q.precacheInnersSQL)
+      val res = this.getCachedOrRunSQL(q.cacheKey, q.getSQLUsingCache)
       println(s"done after $time")
     }
   }

@@ -40,7 +40,7 @@ case class ConnectedComponent() extends VertexIdAnalyser {
 
 case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[DataFrame] {
 
-  override def analyse(implicit g: SpencerDB): DataFrame = {
+  override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
     import g.sqlContext.implicits._
     val matchingIDs = inner.analyse(g)
 
@@ -88,7 +88,7 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
 
 object WithMetaInformationTest extends App {
 
-  implicit val db: SpencerDB = new PostgresSpencerDB("test")
+  implicit val db: PostgresSpencerDB = new PostgresSpencerDB("test")
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
