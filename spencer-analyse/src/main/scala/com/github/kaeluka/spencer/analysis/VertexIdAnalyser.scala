@@ -416,6 +416,8 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
   override def getSQLBlueprint = {
     inner.getSQLBlueprint
   }
+
+  override def cacheKey: String = inner.cacheKey
 }
 
 case class Deeply(inner: VertexIdAnalyser,
@@ -634,7 +636,7 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = CanReach(StationaryObj())
+  val q = QueryParser.parseObjQuery("ImmutableObj()").right.get
   println(s"getSQL:\n${q.getSQL}")
   println(s"precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}")
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
