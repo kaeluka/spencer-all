@@ -78,7 +78,7 @@ object QueryParser {
         case "UniqueObj()"            => UniqueObj()
         case "HeapUniqueObj()"        => HeapUniqueObj()
         case "TinyObj()"              => TinyObj()
-        case "StackBoundObj()"        => MaxInDegree.StackBoundObj()
+        case "StackBoundObj()"        => StackBoundObj()
         case "AgeOrderedObj()"        => AgeOrderedObj()
         case "ReverseAgeOrderedObj()" => ReverseAgeOrderedObj()
         case "ThreadLocalObj()"       => ThreadLocalObj()

@@ -27,9 +27,42 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
     * Gives a sequence of SQL commands that can pre-cache the results.
     * @return
     */
-  def getCacheSQL: Seq[String] = List()
+  def getInners: Seq[VertexIdAnalyser] = List()
 
-  def getSQL: Option[String]
+  def cacheSQL = {
+    val x = getInners.map({
+      inner =>
+        s"""CREATE TABLE IF NOT EXISTS ${inner.cacheKey} AS (
+           |  ${AnaUtil.indent(inner.getSQL, 2)}
+           |);""".stripMargin
+    })
+    x
+  }
+
+  def getSQL: String = {
+    var blueprint = getSQLBlueprint
+    val inners = getInners
+    assert(blueprint.count(_ == '?') == getInners.size)
+    for (inner <- inners) {
+      blueprint = blueprint.replaceFirst("\\?", inner.getSQL)
+    }
+    blueprint
+  }
+
+  def getSQLUsingCache: String = {
+    assert(this.getSQLBlueprint.count(_ == '?') == getInners.size)
+    var assembledSQL = getSQLBlueprint
+    for (inner <- this.getInners) {
+      assembledSQL = assembledSQL.replaceFirst("\\?", inner.getCacheSQL)
+    }
+    assembledSQL
+  }
+
+  def getCacheSQL: String = s"SELECT id FROM ${this.cacheKey}"
+
+  def getSQLBlueprint: String
+
+  def cacheKey: String = s"cache_${this.toString.hashCode.toString.replaceAll("-","_")}"
 }
 
 object AnaUtil {
@@ -65,22 +98,14 @@ case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
 
   override def toString: String = vs.mkString("And(", " ", ")")
 
-//  override def getCacheSQL: Option[Seq[String]] = {
-//    inner.
-//  }
+  override def getInners = vs
 
-  override def getSQL: Option[String] = {
-    val oqueries = vs.map(_.getSQL)
-    if (oqueries.forall(_.isDefined)) {
-      val queries = oqueries
-        .map(_.get)
-      val SQL = queries
-        .map(AnaUtil.indent(_,2))
-        .mkString("(\n", "\n) INTERSECT (\n", "\n)")
-      Some(SQL)
-    } else {
-      None
-    }
+  override def cacheSQL: Seq[String] = {
+    vs.flatMap(_.cacheSQL)
+  }
+
+  override def getSQLBlueprint: String = {
+    vs.map(_ => "  ?").mkString("(\n", "\n) INTERSECT (\n", "\n)")
   }
 }
 
@@ -112,18 +137,10 @@ case class _Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
 
   override def toString: String = vs.mkString("Or(", " ", ")")
 
-  override def getSQL: Option[String] = {
-    val oqueries = vs.map(_.getSQL)
-    if (oqueries.forall(_.isDefined)) {
-      val queries = oqueries
-        .map(_.get)
-      val SQL = queries
-        .map(AnaUtil.indent(_,2))
-        .mkString("(\n", "\n) UNION (\n", "\n)")
-      Some(SQL)
-    } else {
-      None
-    }
+  override def getInners = vs
+
+  override def getSQLBlueprint = {
+    vs.map(_ => "  ?").mkString("(\n", "\n) UNION (\n", "\n)")
   }
 }
 
@@ -143,11 +160,11 @@ case class SnapshottedVertexIdAnalyser(inner : VertexIdAnalyser) extends VertexI
 
   override def toString: String = inner.toString
 
+  override def getInners = inner.getInners
+
   override def explanation(): String = inner.explanation()
 
-  override def getSQL: Option[String] = {
-    inner.getSQL
-  }
+  override def getSQLBlueprint = inner.getSQLBlueprint
 }
 
 /**
@@ -168,12 +185,12 @@ case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
     "are only holding field references to objects created after them"
   }
 
-  override def getSQL = {
-    Some(s"""SELECT id FROM
-            |  (${AnaUtil.indent(AgeOfNeighbours().getSQL.get,3)}) AS AgeOfNeigbhours
-            |GROUP BY id, firstusage
-            |HAVING MAX(calleefirstusage) > firstusage""".stripMargin)
-    }
+  override def getSQLBlueprint = {
+    s"""SELECT id FROM
+       |  (${AnaUtil.indent(AgeOfNeighbours().getSQLBlueprint,3)}) AS AgeOfNeigbhours
+       |GROUP BY id, firstusage
+       |HAVING MAX(calleefirstusage) > firstusage""".stripMargin
+  }
 }
 
 /**
@@ -194,54 +211,54 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
     "are only holding field references to objects created before them"
   }
 
-  override def getSQL: Option[String] = {
-    Some(s"""SELECT id FROM
-            |  (${AnaUtil.indent(AgeOfNeighbours().getSQL.get,3)}) AS AgeOfNeigbhours
-            |GROUP BY id, firstusage
-            |HAVING MAX(calleefirstusage) < firstusage""".stripMargin)
+  override def getSQLBlueprint = {
+    s"""SELECT id FROM
+       |  (${AnaUtil.indent(AgeOfNeighbours().getSQLBlueprint,3)}) AS AgeOfNeigbhours
+       |GROUP BY id, firstusage
+       |HAVING MAX(calleefirstusage) < firstusage""".stripMargin
   }
 }
 
 case class AgeOfNeighbours() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     g.getFrame("refs").createOrReplaceTempView("refs")
-    g.selectFrame("objects",getSQL.get)
+    g.selectFrame("objects",getSQLBlueprint)
   }
 
   override def explanation(): String = "Age"
 
-  override def getSQL: Option[String] = {
-    Some("""SELECT
-           |  objects.id         AS id,
-           |  objects.firstusage AS firstusage,
-           |  callees.firstusage AS calleefirstusage
-           |FROM objects
-           |INNER JOIN refs               ON objects.id = refs.caller
-           |INNER JOIN objects AS callees ON refs.callee = callees.id
-           |WHERE
-           |  refs.kind = 'field'""".stripMargin)
+  override def getSQLBlueprint = {
+    """SELECT
+     |  objects.id         AS id,
+     |  objects.firstusage AS firstusage,
+     |  callees.firstusage AS calleefirstusage
+     |FROM objects
+     |INNER JOIN refs               ON objects.id = refs.caller
+     |INNER JOIN objects AS callees ON refs.callee = callees.id
+     |WHERE
+     |  refs.kind = 'field'""".stripMargin
   }
 }
 
 case class MutableObj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    val ret = g.selectFrame("uses_cstore", getSQL.get)
+    val ret = g.selectFrame("uses_cstore", getSQLBlueprint)
       .withColumnRenamed("callee", "id")
       .repartition(1000)
-    println(s"partitions in ${this.toString}: ${ret.rdd.partitions.size}")
+    println(s"partitions in ${this.toString}: ${ret.rdd.partitions.length}")
     ret
   }
 
   override def explanation(): String = "are changed outside their constructor"
 
-  override def getSQL: Option[String] = {
-    Some("""SELECT DISTINCT callee AS id
-           |FROM uses_cstore
-           |WHERE
-           |  callee > 4 AND
-           |  NOT(caller = callee AND method = '<init>') AND
-           |  (kind = 'fieldstore' OR kind = 'modify')""".stripMargin)
+  override def getSQLBlueprint = {
+    """SELECT DISTINCT callee AS id
+     |FROM uses_cstore
+     |WHERE
+     |  callee > 4 AND
+     |  NOT(caller = callee AND method = '<init>') AND
+     |  (kind = 'fieldstore' OR kind = 'modify')""".stripMargin
   }
 }
 
@@ -253,91 +270,91 @@ object ThreadLocalObj {
 
 case class NonThreadLocalObj() extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("uses_cstore", getSQL.get)
+    g.selectFrame("uses_cstore", getSQLBlueprint)
       .withColumnRenamed("callee", "id")
   }
 
   override def explanation(): String = "are changed outside their constructor"
 
-  override def getSQL: Option[String] = {
-    Some("""SELECT callee
-           |FROM uses_cstore
-           |WHERE callee > 4
-           |GROUP BY callee
-           |HAVING COUNT(DISTINCT thread) > 1
-           |""".stripMargin)
+  override def getSQLBlueprint = {
+    """SELECT callee
+      |FROM uses_cstore
+      |WHERE callee > 4
+      |GROUP BY callee
+      |HAVING COUNT(DISTINCT thread) > 1
+      |""".stripMargin
   }
 }
 
 case class UniqueObj() extends VertexIdAnalyser {
-  override def getSQL: Option[String] = {
-    Some("""SELECT callee AS id FROM
-           |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
-           | FROM (
-           |   (SELECT
-           |      callee, refstart AS time, 1 AS delta
-           |    FROM refs
-           |    WHERE callee > 4) UNION ALL (SELECT
-           |      callee, refend AS time, -1 AS delta
-           |    FROM refs
-           |    WHERE callee > 4)
-           | ) AS steps) AS integrated_steps
-           |GROUP BY callee
-           |HAVING MAX(sum_at_time) = 1""".stripMargin)
+  override def getSQLBlueprint = {
+    """SELECT callee AS id FROM
+      |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
+      | FROM (
+      |   (SELECT
+      |      callee, refstart AS time, 1 AS delta
+      |    FROM refs
+      |    WHERE callee > 4) UNION ALL (SELECT
+      |      callee, refend AS time, -1 AS delta
+      |    FROM refs
+      |    WHERE callee > 4)
+      | ) AS steps) AS integrated_steps
+      |GROUP BY callee
+      |HAVING MAX(sum_at_time) = 1""".stripMargin
   }
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    MaxInDegree.UniqueObj().analyse
+    ??? //MaxInDegree.UniqueObj().analyse
   }
 
   override def explanation(): String = "are never aliased"
 }
 
 case class HeapUniqueObj() extends VertexIdAnalyser {
-  override def getSQL: Option[String] = {
-    Some("""SELECT callee AS id FROM
-           |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
-           | FROM (
-           |   (SELECT
-           |      callee, refstart AS time, 1 AS delta
-           |    FROM refs
-           |    WHERE callee > 4 AND kind = 'field') UNION ALL (SELECT
-           |      callee, refend AS time, -1 AS delta
-           |    FROM refs
-           |    WHERE callee > 4 AND kind = 'field')
-           | ) AS steps) AS integrated_steps
-           |GROUP BY callee
-           |HAVING MAX(sum_at_time) = 1""".stripMargin)
+  override def getSQLBlueprint = {
+    """SELECT callee AS id FROM
+      |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
+      | FROM (
+      |   (SELECT
+      |      callee, refstart AS time, 1 AS delta
+      |    FROM refs
+      |    WHERE callee > 4 AND kind = 'field') UNION ALL (SELECT
+      |      callee, refend AS time, -1 AS delta
+      |    FROM refs
+      |    WHERE callee > 4 AND kind = 'field')
+      | ) AS steps) AS integrated_steps
+      |GROUP BY callee
+      |HAVING MAX(sum_at_time) = 1""".stripMargin
   }
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    MaxInDegree.HeapUniqueObj().analyse
+    ??? //MaxInDegree.HeapUniqueObj().analyse
   }
 
   override def explanation(): String = "are never aliased"
 }
 
 case class StackBoundObj() extends VertexIdAnalyser {
-  override def getSQL: Option[String] = {
-    Some("""SELECT id FROM objects EXCEPT (SELECT callee FROM
-           |  (SELECT
-           |     callee,
-           |     time,
-           |     SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
-           |   FROM (
-           |     (SELECT callee, refstart AS time, 1 AS delta
-           |      FROM refs
-           |      WHERE callee > 4 AND kind = 'field') UNION ALL (SELECT
-           |        callee, refend AS time, -1 AS delta
-           |      FROM refs
-           |      WHERE callee > 4 AND kind = 'field')
-           |   ) AS steps) AS integrated_steps
-           |GROUP BY callee
-           |HAVING MAX(sum_at_time) > 0)""".stripMargin)
+  override def getSQLBlueprint = {
+    """SELECT id FROM objects EXCEPT (SELECT callee FROM
+      |  (SELECT
+      |     callee,
+      |     time,
+      |     SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
+      |   FROM (
+      |     (SELECT callee, refstart AS time, 1 AS delta
+      |      FROM refs
+      |      WHERE callee > 4 AND kind = 'field') UNION ALL (SELECT
+      |        callee, refend AS time, -1 AS delta
+      |      FROM refs
+      |      WHERE callee > 4 AND kind = 'field')
+      |   ) AS steps) AS integrated_steps
+      |GROUP BY callee
+      |HAVING MAX(sum_at_time) > 0)""".stripMargin
   }
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    MaxInDegree.StackBoundObj().analyse
+    ??? //MaxInDegree.StackBoundObj().analyse
   }
 
   override def explanation(): String = "are never aliased"
@@ -361,8 +378,10 @@ case class ImmutableObj() extends VertexIdAnalyser {
 
   override def explanation(): String = "are never changed outside their constructor"
 
-  override def getSQL: Option[String] = {
-    IsNot(MutableObj().snapshotted()).getSQL
+  override def getInners = IsNot(MutableObj()).getInners
+
+  override def getSQLBlueprint: String = {
+    IsNot(MutableObj()).getSQLBlueprint
   }
 }
 
@@ -401,56 +420,56 @@ case class StationaryObj() extends VertexIdAnalyser {
 
   override def explanation(): String = "are never changed after being read from for the first time"
 
-  override def getSQL: Option[String] = {
-    Some("""SELECT id FROM objects
-           |EXCEPT
-           |(SELECT reads.callee id FROM
-           |(
-           |  SELECT
-           |    callee, MIN(idx)
-           |  FROM
-           |    uses_cstore
-           |  WHERE
-           |    callee > 4 AND
-           |    method != '<init>' AND
-           |    (kind = 'fieldload' OR kind = 'read')
-           |  GROUP BY callee
-           |) reads
-           |FULL OUTER JOIN
-           |(
-           |  SELECT
-           |    callee, MAX(idx)
-           |  FROM
-           |    uses_cstore
-           |  WHERE
-           |    callee > 4 AND
-           |    method != '<init>' AND
-           |    (kind = 'fieldstore' OR kind = 'modify')
-           |  GROUP BY callee
-           |) writes
-           |ON reads.callee = writes.callee
-           |WHERE writes.max > reads.min)
-           |""".stripMargin)
+  override def getSQLBlueprint = {
+    """SELECT id FROM objects
+      |EXCEPT
+      |(SELECT reads.callee id FROM
+      |(
+      |  SELECT
+      |    callee, MIN(idx)
+      |  FROM
+      |    uses_cstore
+      |  WHERE
+      |    callee > 4 AND
+      |    method != '<init>' AND
+      |    (kind = 'fieldload' OR kind = 'read')
+      |  GROUP BY callee
+      |) reads
+      |FULL OUTER JOIN
+      |(
+      |  SELECT
+      |    callee, MAX(idx)
+      |  FROM
+      |    uses_cstore
+      |  WHERE
+      |    callee > 4 AND
+      |    method != '<init>' AND
+      |    (kind = 'fieldstore' OR kind = 'modify')
+      |  GROUP BY callee
+      |) writes
+      |ON reads.callee = writes.callee
+      |WHERE writes.max > reads.min)
+      |""".stripMargin
   }
 }
 
 case class Obj() extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("objects", getSQL.get)
+    g.selectFrame("objects", getSQLBlueprint)
   }
 
   override def explanation(): String = "were traced"
 
-  override def getSQL: Option[String] = {
-    Some("SELECT id FROM objects WHERE id >= 4")
+  override def getSQLBlueprint = {
+    "SELECT id FROM objects WHERE id >= 4"
   }
 }
 
 case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser {
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("objects", getSQL.get)
+    g.selectFrame("objects", getSQLBlueprint)
   }
 
   override def toString: String = {
@@ -459,10 +478,10 @@ case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser 
 
   override def explanation(): String = "were allocated at "+allocationSite._1+":"+allocationSite._2
 
-  override def getSQL: Option[String] = {
-    Some(s"""SELECT id FROM objects WHERE
-            |allocationsitefile = '${allocationSite._1}' AND
-            |allocationsiteline = ${allocationSite._2}""".stripMargin)
+  override def getSQLBlueprint = {
+    s"""SELECT id FROM objects WHERE
+       |allocationsitefile = '${allocationSite._1}' AND
+       |allocationsiteline = ${allocationSite._2}""".stripMargin
   }
 }
 
@@ -472,13 +491,13 @@ case class InstanceOf(klassName: String) extends VertexIdAnalyser {
     this(klass.getName)
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
-    g.selectFrame("objects", getSQL.get)
+    g.selectFrame("objects", getSQLBlueprint)
   }
 
   override def explanation(): String = "are instances of class "+klassName
 
-  override def getSQL: Option[String] = {
-    Some(s"""SELECT id FROM objects WHERE klass = '$klassName'""".stripMargin)
+  override def getSQLBlueprint = {
+    s"""SELECT id FROM objects WHERE klass = '$klassName'""".stripMargin
   }
 }
 
@@ -489,12 +508,13 @@ case class IsNot(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 
   override def explanation(): String = "not "+inner.explanation()
 
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""SELECT id FROM objects WHERE id > 4
-         |EXCEPT
-         |  (${AnaUtil.indent(sql,3)})
-        """.stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""SELECT id FROM objects WHERE id > 4
+        |EXCEPT
+        |  (?)
+      """.stripMargin
   }
 }
 
@@ -514,10 +534,12 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
 
   override def toString: String = name
 
+  override def getInners = List(inner)
+
   override def explanation(): String = this.expl
 
-  override def getSQL: Option[String] = {
-    inner.getSQL
+  override def getSQLBlueprint = {
+    inner.getSQLBlueprint
   }
 }
 
@@ -534,14 +556,14 @@ case class Deeply(inner: VertexIdAnalyser,
     inner.explanation()+", and the same is true for all reachable objects"
   }
 
-  override def getSQL: Option[String] = {
-    inner.getSQL.flatMap(sql => {
-      val reachability = edgeFilter match {
-        case None => CanReach
-        case Some(EdgeKind.FIELD) => CanHeapReach
-      }
-      IsNot(reachability(IsNot(inner))).getSQL
-    })
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    val reachability = edgeFilter match {
+      case None => CanReach
+      case Some(EdgeKind.FIELD) => CanHeapReach
+    }
+    IsNot(reachability(IsNot(inner))).getSQLBlueprint
   }
 }
 
@@ -557,8 +579,8 @@ case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
 
   override def explanation(): String = "any of "+value.mkString("{", ", ", "}")
 
-  override def getSQL: Option[String] = {
-    Some(value.mkString("SELECT * FROM (VALUES (", "", s") AS const${Math.abs(this.toString.hashCode)}(id)"))
+  override def getSQLBlueprint = {
+    value.mkString("SELECT * FROM (VALUES (", "", s") AS const${this.cacheKey}(id)")
   }
 }
 
@@ -569,8 +591,8 @@ case class Const(value: DataFrame) extends VertexIdAnalyser {
 
   override def explanation(): String = "constant set "+value.toString
 
-  override def getSQL: Option[String] = {
-    None //FIXME
+  override def getSQLBlueprint = {
+    ??? //FIXME
   }
 }
 
@@ -586,17 +608,18 @@ case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 
   override def explanation(): String = "are field-referring to objects that "+inner.explanation()
 
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""SELECT
-         |  callee AS id
-         |FROM
-         |  refs
-         |WHERE
-         |  kind = 'field' AND
-         |  callee IN (
-         |    ${AnaUtil.indent(sql,4)}
-         |  )""".stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""SELECT
+       |  callee AS id
+       |FROM
+       |  refs
+       |WHERE
+       |  kind = 'field' AND
+       |  callee IN (
+       |    ?
+       |  )""".stripMargin
   }
 }
 
@@ -612,16 +635,17 @@ case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 
   override def explanation(): String = "are referring to objects that "+inner.explanation()
 
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""SELECT
-         |  callee AS id
-         |FROM
-         |  refs
-         |WHERE
-         |  callee IN (
-         |    ${AnaUtil.indent(sql,4)}
-         |  )""".stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""SELECT
+       |  callee AS id
+       |FROM
+       |  refs
+       |WHERE
+       |  callee IN (
+       |    ?
+       |  )""".stripMargin
   }
 }
 
@@ -638,17 +662,18 @@ case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 
   override def explanation(): String = "are heap-referred to from objects that "+inner.explanation()
 
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""SELECT
-         |  callee AS id
-         |FROM
-         |  refs
-         |WHERE
-         |  kind = 'field' AND
-         |  caller IN (
-         |    ${AnaUtil.indent(sql,4)}
-         |  )""".stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""SELECT
+       |  callee AS id
+       |FROM
+       |  refs
+       |WHERE
+       |  kind = 'field' AND
+       |  caller IN (
+       |    ?
+       |  )""".stripMargin
   }
 }
 
@@ -665,32 +690,34 @@ case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 
   override def explanation(): String = "are referred to from objects that "+inner.explanation()
 
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""SELECT
-         |  callee AS id
-         |FROM
-         |  refs
-         |WHERE
-         |  caller IN (
-         |    ${AnaUtil.indent(sql,4)}
-         |  )""".stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""SELECT
+       |  callee AS id
+       |FROM
+       |  refs
+       |WHERE
+       |  caller IN (
+       |    ?
+       |  )""".stripMargin
   }
 }
 
 case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""WITH RECURSIVE heapreachablefrom(id) AS (
-         |    ${AnaUtil.indent(sql,4)}
-         |  UNION
-         |    SELECT
-         |      refs.callee AS id
-         |    FROM refs
-         |    JOIN heapreachablefrom ON heapreachablefrom.id = refs.caller
-         |    WHERE kind = 'field'
-         |)
-         |SELECT id FROM heapreachablefrom""".stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""WITH RECURSIVE heapreachablefrom(id) AS (
+       |    ?
+       |  UNION
+       |    SELECT
+       |      refs.callee AS id
+       |    FROM refs
+       |    JOIN heapreachablefrom ON heapreachablefrom.id = refs.caller
+       |    WHERE kind = 'field'
+       |)
+       |SELECT id FROM heapreachablefrom""".stripMargin
   }
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
@@ -701,17 +728,18 @@ case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 }
 
 case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""WITH RECURSIVE reachablefrom(id) AS (
-         |    ${AnaUtil.indent(sql,4)}
-         |  UNION
-         |    SELECT
-         |      refs.callee AS id
-         |    FROM refs
-         |    JOIN reachablefrom ON reachablefrom.id = refs.caller
-         |)
-         |SELECT id FROM reachablefrom""".stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""WITH RECURSIVE reachablefrom(id) AS (
+       |    ?
+       |  UNION
+       |    SELECT
+       |      refs.callee AS id
+       |    FROM refs
+       |    JOIN reachablefrom ON reachablefrom.id = refs.caller
+       |)
+       |SELECT id FROM reachablefrom""".stripMargin
   }
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
@@ -722,18 +750,19 @@ case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 }
 
 case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""WITH RECURSIVE canheapreach(id) AS (
-         |    ${AnaUtil.indent(sql,4)}
-         |  UNION
-         |    SELECT
-         |      refs.caller AS id
-         |    FROM refs
-         |    JOIN canheapreach ON canheapreach.id = refs.callee
-         |    WHERE kind = 'field'
-         |)
-         |SELECT id FROM canheapreach""".stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""WITH RECURSIVE canheapreach(id) AS (
+       |    ?
+       |  UNION
+       |    SELECT
+       |      refs.caller AS id
+       |    FROM refs
+       |    JOIN canheapreach ON canheapreach.id = refs.callee
+       |    WHERE kind = 'field'
+       |)
+       |SELECT id FROM canheapreach""".stripMargin
   }
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
@@ -744,17 +773,18 @@ case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 }
 
 case class CanReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
-  override def getSQL: Option[String] = {
-    inner.getSQL.map(sql =>
-      s"""WITH RECURSIVE canreach(id) AS (
-         |    ${AnaUtil.indent(sql, 4)}
-         |  UNION
-         |    SELECT
-         |      refs.caller AS id
-         |    FROM refs
-         |    JOIN canreach ON canreach.id = refs.callee
-         |)
-         |SELECT id FROM canreach""".stripMargin)
+  override def getInners = List(inner)
+
+  override def getSQLBlueprint = {
+    s"""WITH RECURSIVE canreach(id) AS (
+       |    ?
+       |  UNION
+       |    SELECT
+       |      refs.caller AS id
+       |    FROM refs
+       |    JOIN canreach ON canreach.id = refs.callee
+       |)
+       |SELECT id FROM canreach""".stripMargin
   }
 
   override def analyse(implicit g: SpencerDB): DataFrame = {
@@ -815,8 +845,10 @@ case class ConnectedWith(roots: VertexIdAnalyser
     "are reachable from objects that "+roots.explanation()
   }
 
-  override def getSQL: Option[String] = {
-    None //FIXME
+  override def getInners = List(roots)
+
+  override def getSQLBlueprint = {
+    ???
   }
 }
 
@@ -828,16 +860,15 @@ case class TinyObj() extends VertexIdAnalyser {
 
   override def explanation(): String = "do not have or do not use reference type fields"
 
-  override def getSQL: Option[String] = {
-    Some(
-      s"""(${AnaUtil.indent(Obj().snapshotted().getSQL.get,1)})
-        |  EXCEPT
-        |  (SELECT
-        |     DISTINCT caller
-        |   FROM
-        |     refs
-        |   WHERE
-        |     kind = 'field')""".stripMargin)
+  override def getSQLBlueprint = {
+    s"""(${AnaUtil.indent(Obj().getSQLBlueprint,1)})
+       |  EXCEPT
+       |  (SELECT
+       |     DISTINCT caller
+       |   FROM
+       |     refs
+       |   WHERE
+       |     kind = 'field')""".stripMargin
   }
 }
 
@@ -847,8 +878,10 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = StackBoundObj()
-  println(s"getSQL:\n${q.getSQL.getOrElse("<none>")}")
+  val q = HeapRefersTo(ImmutableObj())
+  println(s"getSQL:\n${q.getSQL}")
+  println(s"cacheSQL:\n${q.cacheSQL.mkString("\n")}")
+  println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
   val res = q.analyse //AgeOrderedObj().analyse
 
   res.repartition()
@@ -856,6 +889,7 @@ object VertexIdAnalyserTest extends App {
   println(
     s"""analysis took ${watch.stop()}
        |got ${res.count} objects
-       |getSQL:\n${q.getSQL.getOrElse("<none>")}
-     """.stripMargin)
+       |getSQL:\n${q.getSQL}
+       |cacheSQL:\n${q.cacheSQL.mkString("\n")}
+       |getSQLUsingCache:\n${q.getSQLUsingCache}""".stripMargin)
 }

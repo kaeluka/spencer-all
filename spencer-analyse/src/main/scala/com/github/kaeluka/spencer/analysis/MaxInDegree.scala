@@ -20,6 +20,7 @@ case class NamedFunc[T,U](p: T => U, name: String) extends Function[T, U] {
   override def toString(): String = name
 }
 
+/*
 object MaxInDegree {
   val Aliased : Function[Int, Boolean] = NamedFunc(_ > 1, "Aliased")
   val Unique : Function[Int, Boolean] = NamedFunc(_ == 1, "Unique")
@@ -196,6 +197,6 @@ case class MaxInDegree(p: Int => Boolean, name: String, spec: InDegreeSpec = HEA
 
   override def explanation(): String = "the maximum in degree per object"
 
-  override def getSQL = None //FIXME
+  override def getSQL = ??? //FIXME
 }
-
+*/
