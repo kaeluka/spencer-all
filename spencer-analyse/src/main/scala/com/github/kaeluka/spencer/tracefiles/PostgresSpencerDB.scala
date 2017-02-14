@@ -471,12 +471,14 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
   }
 
   override def getPercentage(query: String): Option[Float] = {
-    QueryParser.parseObjQuery(query) match {
+    QueryParser.parseObjQuery(s"And(Obj() $query)") match {
       case Left(_err) => None
       case Right(q) =>
+        val cacheKey = "cache_perc_"+(s"getPercentages($q)".hashCode.toString.replace("-","_")
+        println(s"caching percentage of $query into $cacheKey")
         this.prepareCaches(q.precacheInnersSQL)
         this.getCachedOrRunQuery(q).close()
-        val result = this.getCachedOrRunSQL("cache_"+(s"getPercentages($query)".hashCode.toString.replace("-","_")),
+        val result = this.getCachedOrRunSQL(cacheKey,
           s"""SELECT
               |  ROUND(100.0*COUNT(id)/(SELECT COUNT(id) FROM objects WHERE id > 4), 2)
               |FROM
@@ -909,6 +911,13 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
       this.prepareCaches(q.precacheInnersSQL)
       val res = this.getCachedOrRunSQL(q.cacheKey, q.getSQLUsingCache)
       println(s"done after $time")
+    }
+    val del = QueryParser.wrapQueries("Not", QueryParser.seriesOfQueries())
+    for (q <- del) {
+      print(s"dropping $q.. ")
+      this.conn.createStatement().execute(s"DROP TABLE IF EXISTS ${q.cacheKey};")
+      this.conn.commit()
+      println("done")
     }
   }
 
