@@ -77,24 +77,24 @@ object AnaUtil {
   }
 }
 
-object And {
-  def apply(vs: Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
-    val vs_ = vs
-      .filter(_.toString != "Obj()")
-      .flatMap({
-        case _And(innerVs) => innerVs
-        case other => List(other)
-      })
-    assert(vs_.nonEmpty)
-    if (vs_.size == 1) {
-      vs_.head
-    } else {
-      _And(vs_)
-    }
-  }
-}
+//object And {
+//  def apply(vs: Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
+//    val vs_ = vs
+//      .filter(_.toString != "Obj()")
+//      .flatMap({
+//        case _And(innerVs) => innerVs
+//        case other => List(other)
+//      })
+//    assert(vs_.nonEmpty)
+//    if (vs_.size == 1) {
+//      vs_.head
+//    } else {
+//      _And(vs_)
+//    }
+//  }
+//}
 
-case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
+case class And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
 
   override def explanation(): String = vs.map(_.explanation()).mkString(", and ")
 
@@ -111,22 +111,22 @@ case class _And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   }
 }
 
-object Or {
-  def apply(vs_ : Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
-    vs_.find(_.toString == "Obj()") match {
-      case Some(q) => q
-      case None =>
-        val vs = vs_
-          .flatMap({
-            case _Or(innerVs) => innerVs
-            case other => List(other)
-          })
-        _Or(vs)
-    }
-  }
-}
+//object Or {
+//  def apply(vs_ : Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
+//    vs_.find(_.toString == "Obj()") match {
+//      case Some(q) => q
+//      case None =>
+//        val vs = vs_
+//          .flatMap({
+//            case _Or(innerVs) => innerVs
+//            case other => List(other)
+//          })
+//        _Or(vs)
+//    }
+//  }
+//}
 
-case class _Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
+case class Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
 
   override def explanation(): String = vs.map(_.explanation()).mkString(", or ")
 
@@ -223,7 +223,7 @@ case class MutableObj() extends VertexIdAnalyser {
 
 object ThreadLocalObj {
   def apply() : VertexIdAnalyser = {
-    Named(IsNot(NonThreadLocalObj()), "ThreadLocalObj()", "are accessed by only one thread")
+    Named(Not(NonThreadLocalObj()), "ThreadLocalObj()", "are accessed by only one thread")
   }
 }
 
@@ -307,15 +307,15 @@ case class ImmutableObj() extends VertexIdAnalyser {
 
   override def explanation(): String = "are never changed outside their constructor"
 
-  override def getInners = IsNot(MutableObj()).getInners
+  override def getInners = Not(MutableObj()).getInners
 
   override def getSQLBlueprint: String = {
-    IsNot(MutableObj()).getSQLBlueprint
+    Not(MutableObj()).getSQLBlueprint
   }
 }
 
 case class StationaryObj() extends VertexIdAnalyser {
-  val inner = IsNot(NonStationaryObj())
+  val inner = Not(NonStationaryObj())
   override def getSQLBlueprint = {
     inner.getSQLBlueprint
   }
@@ -381,7 +381,15 @@ case class InstanceOf(klassName: String) extends VertexIdAnalyser {
   }
 }
 
-case class IsNot(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+object Not {
+  def apply(inner: VertexIdAnalyser) : VertexIdAnalyser = {
+    inner match {
+      case n: Not_ => n.inner
+      case _       => Not_(inner)
+    }
+  }
+}
+case class Not_(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 
   override def explanation(): String = "not "+inner.explanation()
 
@@ -393,6 +401,8 @@ case class IsNot(inner: VertexIdAnalyser) extends VertexIdAnalyser {
         |  (?)
       """.stripMargin
   }
+
+  override def toString = s"Not(${inner.toString})"
 }
 
 object Named {
@@ -433,7 +443,7 @@ case class Deeply(inner: VertexIdAnalyser,
       case None => CanReach
       case Some(EdgeKind.FIELD) => CanHeapReach
     }
-    IsNot(reachability(IsNot(inner))).getSQLBlueprint
+    Not(reachability(Not(inner))).getSQLBlueprint
   }
 }
 
@@ -636,7 +646,8 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = QueryParser.parseObjQuery("ImmutableObj()").right.get
+  val q = QueryParser.parseObjQuery("And(Obj() Not(ImmutableObj()))").right.get
+  println(q.toString)
   println(s"getSQL:\n${q.getSQL}")
   println(s"precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}")
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
