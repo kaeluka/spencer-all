@@ -522,11 +522,11 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
 }
 
 case class Deeply(inner: VertexIdAnalyser,
-                  edgeFilter : Option[EdgeKind => Boolean] = None) extends VertexIdAnalyser {
+                  edgeFilter : Option[EdgeKind] = None) extends VertexIdAnalyser {
   override def analyse(implicit g: SpencerDB): DataFrame = {
     val allObjs = Obj().analyse
     val negativeRoots = allObjs.join(inner.analyse, List("id"), "left_anti")
-    val reachingNegativeRoots = ConnectedWith(Const(negativeRoots), reverse = true, edgeFilter)
+    val reachingNegativeRoots = ConnectedWith(Const(negativeRoots), reverse = true, edgeFilter.map(k => _ == k))
     IsNot(reachingNegativeRoots).analyse
   }
 
@@ -535,7 +535,13 @@ case class Deeply(inner: VertexIdAnalyser,
   }
 
   override def getSQL: Option[String] = {
-    None //FIXME
+    inner.getSQL.flatMap(sql => {
+      val reachability = edgeFilter match {
+        case None => CanReach
+        case Some(EdgeKind.FIELD) => CanHeapReach
+      }
+      IsNot(reachability(IsNot(inner))).getSQL
+    })
   }
 }
 
