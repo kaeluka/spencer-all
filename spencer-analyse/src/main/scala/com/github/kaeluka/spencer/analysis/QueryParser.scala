@@ -23,7 +23,7 @@ object QueryParser {
       .map(q => Named(Deeply(q), s"Deeply(${q.toString})")) |
       P("HeapDeeply("~objQuery~")")
         .map(q => Named(Deeply(q,
-          edgeFilter = Some(_ == EdgeKind.FIELD)), s"HeapDeeply(${q.toString})"))
+          edgeFilter = Some(EdgeKind.FIELD)), s"HeapDeeply(${q.toString})"))
 
   def constSet =
     P("Set(" ~ number.rep(sep = " ").map(_.toSet) ~")").map(set => Named(ConstSeq(set.toSeq), "Set"))
