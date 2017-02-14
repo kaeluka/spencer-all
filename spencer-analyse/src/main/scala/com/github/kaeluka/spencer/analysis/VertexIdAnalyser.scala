@@ -315,9 +315,12 @@ case class ImmutableObj() extends VertexIdAnalyser {
 }
 
 case class StationaryObj() extends VertexIdAnalyser {
+  val inner = IsNot(NonStationaryObj())
   override def getSQLBlueprint = {
-    IsNot(NonStationaryObj()).getSQLBlueprint
+    inner.getSQLBlueprint
   }
+
+  override def getInners = inner.getInners
 
   override def explanation(): String = "are never changed after being read from"
 }
@@ -328,7 +331,7 @@ case class NonStationaryObj() extends VertexIdAnalyser {
   override def explanation(): String = "are changed after being read from"
 
   override def getSQLBlueprint = {
-    """SELECT idx, caller, callee, kind
+    """SELECT idx
       |FROM uses_cstore read
       |WHERE callee > 4
       |AND   (kind = 'fieldload' OR kind = 'read')
@@ -631,7 +634,7 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = StationaryObj()
+  val q = CanReach(StationaryObj())
   println(s"getSQL:\n${q.getSQL}")
   println(s"precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}")
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
