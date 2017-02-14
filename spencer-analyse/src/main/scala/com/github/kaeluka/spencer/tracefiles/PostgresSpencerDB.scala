@@ -419,7 +419,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     var ret: ResultSet = null
     try {
       ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name;")
-      println(s"$cacheKey: already cached in $name.. done")
+      print(s"$query: already cached in $name.. ")
     } catch {
       case e: PSQLException =>
         this.conn.commit()
@@ -429,7 +429,6 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
           s"CREATE TABLE $name AS $sql ;")
         this.conn.commit()
         ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $name")
-        println("done")
     }
     ret
   }
