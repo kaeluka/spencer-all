@@ -629,7 +629,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     this.g
   }
 
-  override def clearCaches(dbname: Option[String]): Unit = {
+  def clearCaches(dbname: String): Unit = {
     val conn = DriverManager.getConnection("jdbc:postgresql:template2")
     var benchmarks = List[BenchmarkMetaInfo]()
     val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
