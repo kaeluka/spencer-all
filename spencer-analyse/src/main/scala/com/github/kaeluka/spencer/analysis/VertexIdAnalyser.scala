@@ -410,18 +410,19 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
 
 case class Deeply(inner: VertexIdAnalyser,
                   edgeFilter : Option[EdgeKind] = None) extends VertexIdAnalyser {
+  val reachability = edgeFilter match {
+      case None => CanReach
+      case Some(EdgeKind.FIELD) => CanHeapReach
+    }
+  val impl = And(List(inner, Not(reachability(Not(inner)))))
   override def explanation(): String = {
     inner.explanation()+", and the same is true for all reachable objects"
   }
 
-  override def getInners = List(inner)
+  override def getInners = impl.getInners
 
   override def getSQLBlueprint = {
-    val reachability = edgeFilter match {
-      case None => CanReach
-      case Some(EdgeKind.FIELD) => CanHeapReach
-    }
-    And(List(inner, Not(reachability(Not(inner))))).getSQLBlueprint
+    impl.getSQLBlueprint
   }
 
   override def cacheKey: String = super.cacheKey+"_v2" //found a bug, this invalidates old caches
