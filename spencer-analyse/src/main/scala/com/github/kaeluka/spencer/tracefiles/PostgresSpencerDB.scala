@@ -474,7 +474,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     QueryParser.parseObjQuery(s"And(Obj() $query)") match {
       case Left(_err) => None
       case Right(q) =>
-        val cacheKey = s"cache_perc_n${minInstances}_"+(s"getPercentages($q)".hashCode.toString.replace("-","_"))
+        val cacheKey = s"cache_classperc_n${minInstances}_"+(s"getPercentages($q)".hashCode.toString.replace("-","_"))
         println(s"caching percentage of $query into $cacheKey")
         this.prepareCaches(q.precacheInnersSQL)
         this.getCachedOrRunQuery(q).close()
@@ -496,7 +496,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
              |      FROM objects
              |      GROUP BY klass) total
              |ON filtered.klass = total.klass)
-             |WHERE npassed >= $minInstances""".stripMargin)
+             |WHERE ntotal >= $minInstances""".stripMargin)
         val ret = collection.mutable.ListBuffer[(String, Float)]()
         while (result.next) {
           ret.append((result.getString(1), result.getFloat(2)))
