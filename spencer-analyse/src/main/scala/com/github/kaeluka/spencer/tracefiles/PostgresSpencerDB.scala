@@ -36,7 +36,7 @@ object PostgresSpencerDBs extends SpencerDBs {
   }
 
   override def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo] = {
-    val conn = DriverManager.getConnection("jdbc:postgresql:template2")
+    val conn = DriverManager.getConnection("jdbc:postgresql:template1")
     var benchmarks = List[BenchmarkMetaInfo]()
     val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
     val rs = ps.executeQuery()
@@ -474,7 +474,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     QueryParser.parseObjQuery(s"And(Obj() $query)") match {
       case Left(_err) => None
       case Right(q) =>
-        val cacheKey = s"cache_classperc_n${minInstances}_"+(s"getPercentages($q)".hashCode.toString.replace("-","_"))
+        val cacheKey = s"cache_classpercent_n${minInstances}_"+(s"getPercentages($q)".hashCode.toString.replace("-","_"))
         println(s"caching percentage of $query into $cacheKey")
         this.prepareCaches(q.precacheInnersSQL)
         this.getCachedOrRunQuery(q).close()
@@ -492,9 +492,10 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
              |) AS counted
              |ON objects.id = counted.id
              |GROUP BY klass) filtered
-             |JOIN (SELECT klass, COUNT(id) ntotal
-             |      FROM objects
-             |      GROUP BY klass) total
+             |RIGHT OUTER JOIN (SELECT klass, COUNT(id) ntotal
+             |                  FROM objects
+             |                  WHERE id > 4
+             |                  GROUP BY klass) total
              |ON filtered.klass = total.klass)
              |WHERE ntotal >= $minInstances""".stripMargin)
         val ret = collection.mutable.ListBuffer[(String, Float)]()
@@ -630,22 +631,24 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
   }
 
   def clearCaches(dbname: String): Unit = {
-    val conn = DriverManager.getConnection("jdbc:postgresql:template2")
-    var benchmarks = List[BenchmarkMetaInfo]()
-    val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
-    val rs = ps.executeQuery()
-    var db: PostgresSpencerDB = null
+    val conn = DriverManager.getConnection("jdbc:postgresql:"+dbname)
+    val rs = conn.createStatement().executeQuery(
+      """SELECT table_name
+        |FROM information_schema.tables
+        |WHERE table_schema='public'
+        |AND   table_type='BASE TABLE'
+        |AND   table_name LIKE 'cache_%'""".stripMargin)
+    println("\nclearing caches: ")
     while (rs.next()) {
-      val dbname = rs.getString(1)
-      if (dbname.startsWith("cache_")) {
-        this.conn.createStatement().execute(s"DROP TABLE IF EXISTS ${dbname}")
+      val tblname = rs.getString(1)
+      if (tblname.startsWith("cache_")) {
+        print(tblname+" ")
+        this.conn.createStatement().execute(s"DROP TABLE IF EXISTS ${tblname}")
         this.conn.commit()
       }
     }
     rs.close()
-    ps.close()
     conn.close()
-    benchmarks
   }
 
 //  @deprecated
