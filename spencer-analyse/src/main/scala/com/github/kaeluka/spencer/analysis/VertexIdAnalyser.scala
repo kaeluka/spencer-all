@@ -424,8 +424,10 @@ case class Deeply(inner: VertexIdAnalyser,
       case None => CanReach
       case Some(EdgeKind.FIELD) => CanHeapReach
     }
-    Not(reachability(Not(inner))).getSQLBlueprint
+    And(List(inner, Not(reachability(Not(inner))))).getSQLBlueprint
   }
+
+  override def cacheKey: String = super.cacheKey+"_v2" //found a bug, this invalidates old caches
 }
 
 case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
