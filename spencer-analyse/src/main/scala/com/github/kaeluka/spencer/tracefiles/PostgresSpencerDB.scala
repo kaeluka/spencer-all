@@ -470,7 +470,58 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     }
   }
 
-  def getClassPercentage(query: String, minInstances: Int = 30): Option[Seq[(String, Float)]] = {
+  def getFieldPercentage(query: String, minInstances: Int = 10): Option[Seq[(String, Float)]] = {
+    QueryParser.parseObjQuery(s"And(Obj() $query)") match {
+      case Left(_err) => None
+      case Right(q) =>
+        val cacheKey = s"cache_fieldpercent_n${minInstances}_"+(s"getPercentages($q)".hashCode.toString.replace("-","_"))
+        println(s"caching percentage of $query into $cacheKey")
+        this.prepareCaches(q.precacheInnersSQL)
+        this.getCachedOrRunQuery(q).close()
+        val result = this.getCachedOrRunSQL(cacheKey,
+          s"""-- select all fields, the number of objects, the number of passed objects, and the percentage
+             |SELECT total.field field, total.ncallees total, COALESCE(passes.ncallees,0) passed, round(100.0*COALESCE(passes.ncallees,0)/total.ncallees, 2) perc FROM
+             |(
+             |-- select all fields, and the number of objects that were referenced from them
+             |SELECT
+             |  CONCAT(klass,'::',name) field, COUNT(DISTINCT callee) ncallees
+             |FROM
+             |  refs
+             |INNER JOIN objects ON objects.id = refs.caller
+             |WHERE kind = 'field'
+             |AND   klass NOT LIKE '[%'
+             |AND   callee IN (SELECT id FROM objects)
+             |
+             |GROUP BY (klass, name)
+             |) total
+             |LEFT OUTER JOIN
+             |(
+             |-- select all fields, and the number of objects that passed that were referenced
+             |-- from them
+             |SELECT
+             |  CONCAT(klass,'::',name) field, COUNT(DISTINCT callee) ncallees
+             |FROM
+             |  refs
+             |INNER JOIN objects ON objects.id = refs.caller
+             |WHERE
+             |  kind = 'field' AND
+             |  klass NOT LIKE '[%'
+             |  AND callee IN (${q.getCacheSQL}) -- <<<<< THIS IS THE INNER QUERY
+             |GROUP BY (klass, name)
+             |) passes
+             |ON total.field = passes.field
+             |ORDER BY perc DESC
+           """.stripMargin)
+        val ret = collection.mutable.ListBuffer[(String, Float)]()
+        while (result.next) {
+          ret.append((result.getString("field"), result.getFloat("perc")))
+        }
+
+        result.close()
+        Some(ret)
+    }
+  }
+  def getClassPercentage(query: String, minInstances: Int = 10): Option[Seq[(String, Float)]] = {
     QueryParser.parseObjQuery(s"And(Obj() $query)") match {
       case Left(_err) => None
       case Right(q) =>
