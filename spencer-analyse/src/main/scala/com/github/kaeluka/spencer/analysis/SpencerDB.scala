@@ -97,8 +97,6 @@ trait SpencerDB {
 
   val sqlContext : SQLContext
 
-  def clearCaches(dbname: Option[String])
-
   def getGraph(): Graph[ObjDesc, EdgeDesc]
 
 }
