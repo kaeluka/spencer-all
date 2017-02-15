@@ -264,24 +264,21 @@ case class HeapUniqueObj() extends VertexIdAnalyser {
 
 case class StackBoundObj() extends VertexIdAnalyser {
   override def getSQLBlueprint = {
-    """SELECT id FROM objects EXCEPT (SELECT callee FROM
-      |  (SELECT
-      |     callee,
-      |     time,
-      |     SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
-      |   FROM (
-      |     (SELECT callee, refstart AS time, 1 AS delta
-      |      FROM refs
-      |      WHERE callee > 4 AND kind = 'field') UNION ALL (SELECT
-      |        callee, refend AS time, -1 AS delta
-      |      FROM refs
-      |      WHERE callee > 4 AND kind = 'field')
-      |   ) AS steps) AS integrated_steps
-      |GROUP BY callee
-      |HAVING MAX(sum_at_time) > 0)""".stripMargin
+    """SELECT id
+      |FROM   objects
+      |WHERE  id > 4
+      |AND    NOT EXISTS (
+      |         SELECT 1
+      |         FROM   refs
+      |         WHERE  refs.callee = objects.id
+      |         AND    refs.kind = 'field'
+      |       )""".stripMargin
   }
 
   override def explanation(): String = "are never aliased"
+
+  override def cacheKey: String = super.cacheKey+"_v2"
+
 }
 
 case class ImmutableObj() extends VertexIdAnalyser {
