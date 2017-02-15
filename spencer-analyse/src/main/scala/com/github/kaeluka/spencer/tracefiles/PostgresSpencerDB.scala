@@ -36,7 +36,7 @@ object PostgresSpencerDBs extends SpencerDBs {
   }
 
   override def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo] = {
-    val conn = DriverManager.getConnection("jdbc:postgresql:template1")
+    val conn = DriverManager.getConnection("jdbc:postgresql:template2")
     var benchmarks = List[BenchmarkMetaInfo]()
     val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
     val rs = ps.executeQuery()
@@ -630,7 +630,22 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
   }
 
   override def clearCaches(dbname: Option[String]): Unit = {
-    ???
+    val conn = DriverManager.getConnection("jdbc:postgresql:template2")
+    var benchmarks = List[BenchmarkMetaInfo]()
+    val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
+    val rs = ps.executeQuery()
+    var db: PostgresSpencerDB = null
+    while (rs.next()) {
+      val dbname = rs.getString(1)
+      if (dbname.startsWith("cache_")) {
+        this.conn.createStatement().execute(s"DROP TABLE IF EXISTS ${dbname}")
+        this.conn.commit()
+      }
+    }
+    rs.close()
+    ps.close()
+    conn.close()
+    benchmarks
   }
 
 //  @deprecated
