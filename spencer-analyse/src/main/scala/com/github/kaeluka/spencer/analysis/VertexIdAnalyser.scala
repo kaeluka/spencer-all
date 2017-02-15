@@ -426,6 +426,11 @@ case class Deeply(inner: VertexIdAnalyser,
   }
 
   override def cacheKey: String = super.cacheKey+"_v2" //found a bug, this invalidates old caches
+
+  override def toString = edgeFilter match {
+    case None => s"Deeply(${inner.toString})"
+    case Some(EdgeKind.FIELD) => s"HeapDeeply(${inner.toString})"
+  }
 }
 
 case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {

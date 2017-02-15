@@ -20,10 +20,10 @@ object QueryParser {
 
   def deeply =
     P("Deeply("~objQuery~")")
-      .map(q => Named(Deeply(q), s"Deeply(${q.toString})")) |
+      .map(q => Deeply(q)) |
       P("HeapDeeply("~objQuery~")")
-        .map(q => Named(Deeply(q,
-          edgeFilter = Some(EdgeKind.FIELD)), s"HeapDeeply(${q.toString})"))
+        .map(q => Deeply(q,
+          edgeFilter = Some(EdgeKind.FIELD)))
 
   def constSet =
     P("Set(" ~ number.rep(sep = " ").map(_.toSet) ~")").map(set => Named(ConstSeq(set.toSeq), "Set"))
