@@ -19,9 +19,15 @@ object SpencerCache {
 
     val db = new PostgresSpencerDB(name, false)
     db.connect()
-    if (args.contains("--replace")) {
+    if (args.contains("--clear")) {
       print("clearing all caches first..")
       db.clearCaches(name)
+      println("done")
+    }
+
+    if (args.contains("--clearstat")) {
+      print("clearing all statistics first..")
+      db.clearCaches(name, true)
       println("done")
     }
     db.cacheQueries()

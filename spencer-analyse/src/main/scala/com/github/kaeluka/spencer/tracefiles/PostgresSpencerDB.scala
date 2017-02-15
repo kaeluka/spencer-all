@@ -681,14 +681,14 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     this.g
   }
 
-  def clearCaches(dbname: String): Unit = {
+  def clearCaches(dbname: String, onlyStatistics: Boolean = false): Unit = {
     val conn = DriverManager.getConnection("jdbc:postgresql:"+dbname)
     val rs = conn.createStatement().executeQuery(
-      """SELECT table_name
+      s"""SELECT table_name
         |FROM information_schema.tables
         |WHERE table_schema='public'
         |AND   table_type='BASE TABLE'
-        |AND   table_name LIKE 'cache_%'""".stripMargin)
+        |AND   table_name LIKE 'cache_%${if (onlyStatistics) {"perc%"} else {""%}}'""".stripMargin)
     println("\nclearing caches: ")
     while (rs.next()) {
       val tblname = rs.getString(1)
