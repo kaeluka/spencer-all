@@ -9,10 +9,6 @@ import org.apache.spark.sql.functions._
 
 trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
 
-  def snapshotted() : VertexIdAnalyser = {
-    SnapshottedVertexIdAnalyser(this)
-  }
-
   override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
     g.prepareCaches(this.precacheInnersSQL)
     g.getCachedOrRunQuery(this)
@@ -137,21 +133,6 @@ case class Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   override def getSQLBlueprint = {
     vs.map(_ => "  ?").mkString("(\n", "\n) UNION (\n", "\n)")
   }
-}
-
-case class SnapshottedVertexIdAnalyser(inner : VertexIdAnalyser) extends VertexIdAnalyser {
-
-  override def snapshotted(): VertexIdAnalyser = this
-
-  override def pretty(result: DataFrame): String = inner.pretty(result)
-
-  override def toString: String = inner.toString
-
-  override def getInners = inner.getInners
-
-  override def explanation(): String = inner.explanation()
-
-  override def getSQLBlueprint = inner.getSQLBlueprint
 }
 
 /**

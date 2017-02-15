@@ -84,7 +84,6 @@ object QueryParser {
         case "ThreadLocalObj()"       => ThreadLocalObj()
         case "Obj()"                  => Obj()
       }
-      .map(_.snapshotted())
   }
 
   def escape(txt: String): String = {
@@ -104,7 +103,7 @@ object QueryParser {
       unescape(txt)
     )
     res match {
-      case Parsed.Success(value, _) => Right(value.snapshotted())
+      case Parsed.Success(value, _) => Right(value)
       case Parsed.Failure(_, index, extra) =>
         Left("parsing failed :\n"+txt+"\n"+(" "*index)+"^\nrest: "+extra)
     }
