@@ -30,8 +30,10 @@ object SpencerCache {
       db.clearCaches(name, true)
       println("done")
     }
-    db.cacheQueries()
-    println("caching done")
-    sys.exit(0)
+    if (args.contains("--cache")) {
+      db.cacheQueries()
+      println("caching done")
+      sys.exit(0)
+    }
   }
 }
