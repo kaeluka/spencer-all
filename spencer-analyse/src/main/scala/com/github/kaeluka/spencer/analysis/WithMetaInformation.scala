@@ -36,6 +36,7 @@ case class ConnectedComponent() extends VertexIdAnalyser {
   override def explanation(): String = "are connected"
 
   override def getSQLBlueprint = ??? ///FIXME
+  override def getVersion = { 0 }
 }
 
 case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[DataFrame] {

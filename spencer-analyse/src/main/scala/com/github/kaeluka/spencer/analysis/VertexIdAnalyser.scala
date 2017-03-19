@@ -25,12 +25,16 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
     this.explanation()+":\n"+resString
   }
 
-  /**
-    * Gives a sequence of SQL commands that can pre-cache the results.
-    * @return
-    */
   def getInners: Seq[VertexIdAnalyser] = List()
 
+  def getVersion: Int
+
+  /**
+    * Gives a sequence of SQL commands that can pre-cache the results.
+    * If the cache already exists, these queries will *not* rerun it
+    * @return a sequence of commands (as Strings) that can pre-cache the results
+    *         of this query. use getSQLUsingCache to load the cached query
+    */
   def precacheInnersSQL = {
     val x = getInners.map({
       inner =>
@@ -64,7 +68,11 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
 
   def getSQLBlueprint: String
 
-  def cacheKey: String = s"cache_${this.toString.hashCode.toString.replaceAll("-","_")}"
+  def cacheKey: String = {
+    val innerKeys = this.getInners.map(_.cacheKey).mkString("")
+    val thisKey = (innerKeys+this.toString).hashCode
+    s"cache_${thisKey.hashCode.toString.replaceAll("-","_")}_${this.getVersion}"
+  }
 }
 
 object AnaUtil {
@@ -105,6 +113,8 @@ case class And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   override def getSQLBlueprint: String = {
     vs.map(_ => "  ?").mkString("(\n", "\n) INTERSECT (\n", "\n)")
   }
+
+  override def getVersion: Int = { 0 }
 }
 
 //object Or {
@@ -133,6 +143,8 @@ case class Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   override def getSQLBlueprint = {
     vs.map(_ => "  ?").mkString("(\n", "\n) UNION (\n", "\n)")
   }
+
+  override def getVersion: Int = { 0 }
 }
 
 /**
@@ -147,10 +159,12 @@ case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
 
   override def getSQLBlueprint = {
     s"""SELECT id FROM
-       |  (${AnaUtil.indent(AgeOfNeighbours().getSQLBlueprint,3)}) AS AgeOfNeigbhours
+       |  (${AnaUtil.indent(AgeOfNeighbours().getSQLBlueprint,3)}) AS AgeOfNeighbours
        |GROUP BY id, firstusage
        |HAVING MAX(calleefirstusage) > firstusage""".stripMargin
   }
+
+  override def getVersion: Int = { 0 }
 }
 
 /**
@@ -165,10 +179,12 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
 
   override def getSQLBlueprint = {
     s"""SELECT id FROM
-       |  (${AnaUtil.indent(AgeOfNeighbours().getSQLBlueprint,3)}) AS AgeOfNeigbhours
+       |  (${AnaUtil.indent(AgeOfNeighbours().getSQLBlueprint,3)}) AS AgeOfNeighbours
        |GROUP BY id, firstusage
        |HAVING MAX(calleefirstusage) < firstusage""".stripMargin
   }
+
+  override def getVersion: Int = { 0 }
 }
 
 case class AgeOfNeighbours() extends VertexIdAnalyser {
@@ -186,6 +202,8 @@ case class AgeOfNeighbours() extends VertexIdAnalyser {
      |WHERE
      |  refs.kind = 'field'""".stripMargin
   }
+
+  override def getVersion: Int = { 0 }
 }
 
 case class MutableObj() extends VertexIdAnalyser {
@@ -200,6 +218,8 @@ case class MutableObj() extends VertexIdAnalyser {
      |  NOT(caller = callee AND method = '<init>') AND
      |  (kind = 'fieldstore' OR kind = 'modify')""".stripMargin
   }
+
+  override def getVersion: Int = { 0 }
 }
 
 object ThreadLocalObj {
@@ -220,6 +240,8 @@ case class NonThreadLocalObj() extends VertexIdAnalyser {
       |HAVING COUNT(DISTINCT thread) > 1
       |""".stripMargin
   }
+
+  override def getVersion: Int = { 0 }
 }
 
 case class UniqueObj() extends VertexIdAnalyser {
@@ -240,6 +262,8 @@ case class UniqueObj() extends VertexIdAnalyser {
   }
 
   override def explanation(): String = "are never aliased"
+
+  override def getVersion: Int = { 0 }
 }
 
 case class HeapUniqueObj() extends VertexIdAnalyser {
@@ -260,6 +284,8 @@ case class HeapUniqueObj() extends VertexIdAnalyser {
   }
 
   override def explanation(): String = "are never aliased"
+
+  override def getVersion: Int = { 0 }
 }
 
 case class StackBoundObj() extends VertexIdAnalyser {
@@ -279,6 +305,7 @@ case class StackBoundObj() extends VertexIdAnalyser {
 
   override def cacheKey: String = super.cacheKey+"_v2"
 
+  override def getVersion = { 0 }
 }
 
 case class ImmutableObj() extends VertexIdAnalyser {
@@ -290,6 +317,8 @@ case class ImmutableObj() extends VertexIdAnalyser {
   override def getSQLBlueprint: String = {
     Not(MutableObj()).getSQLBlueprint
   }
+
+  override def getVersion = { 0 }
 }
 
 case class StationaryObj() extends VertexIdAnalyser {
@@ -301,6 +330,8 @@ case class StationaryObj() extends VertexIdAnalyser {
   override def getInners = inner.getInners
 
   override def explanation(): String = "are never changed after being read from"
+
+  override def getVersion = { 0 }
 }
 
 
@@ -321,6 +352,8 @@ case class NonStationaryObj() extends VertexIdAnalyser {
       |              AND    store.idx > read.idx)
       |""".stripMargin
   }
+
+  override def getVersion = { 0 }
 }
 
 case class Obj() extends VertexIdAnalyser {
@@ -330,6 +363,8 @@ case class Obj() extends VertexIdAnalyser {
   override def getSQLBlueprint = {
     "SELECT id FROM objects WHERE id >= 4"
   }
+
+  override def getVersion = { 0 }
 }
 
 case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser {
@@ -345,6 +380,8 @@ case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser 
        |allocationsitefile = '${allocationSite._1}' AND
        |allocationsiteline = ${allocationSite._2}""".stripMargin
   }
+
+  override def getVersion = { 0 }
 }
 
 case class InstanceOf(klassName: String) extends VertexIdAnalyser {
@@ -357,6 +394,8 @@ case class InstanceOf(klassName: String) extends VertexIdAnalyser {
   override def getSQLBlueprint = {
     s"""SELECT id FROM objects WHERE klass = '$klassName'""".stripMargin
   }
+
+  override def getVersion = { 0 }
 }
 
 object Not {
@@ -381,6 +420,8 @@ case class Not_(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   }
 
   override def toString = s"Not(${inner.toString})"
+
+  override def getVersion = { 0 }
 }
 
 object Named {
@@ -406,6 +447,8 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
   }
 
   override def cacheKey: String = inner.cacheKey
+
+  override def getVersion = { 0 }
 }
 
 case class Deeply(inner: VertexIdAnalyser,
@@ -431,6 +474,8 @@ case class Deeply(inner: VertexIdAnalyser,
     case None => s"Deeply(${inner.toString})"
     case Some(EdgeKind.FIELD) => s"HeapDeeply(${inner.toString})"
   }
+
+  override def getVersion = { 0 }
 }
 
 case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
@@ -448,6 +493,8 @@ case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
   override def getSQLBlueprint = {
     value.mkString("SELECT * FROM (VALUES (", "", s") AS const${this.cacheKey}(id)")
   }
+
+  override def getVersion = { 0 }
 }
 
 case class Const(value: DataFrame) extends VertexIdAnalyser {
@@ -457,9 +504,9 @@ case class Const(value: DataFrame) extends VertexIdAnalyser {
 
   override def explanation(): String = "constant set "+value.toString
 
-  override def getSQLBlueprint = {
-    ??? //FIXME
-  }
+  override def getSQLBlueprint = ??? //FIXME
+
+  override def getVersion = { 0 }
 }
 
 case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -479,6 +526,8 @@ case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
        |    ?
        |  )""".stripMargin
   }
+
+  override def getVersion = { 0 }
 }
 
 case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -497,6 +546,8 @@ case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
        |    ?
        |  )""".stripMargin
   }
+
+  override def getVersion = { 0 }
 }
 
 case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -516,6 +567,8 @@ case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
        |    ?
        |  )""".stripMargin
   }
+
+  override def getVersion = { 0 }
 }
 
 case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -534,6 +587,8 @@ case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
        |    ?
        |  )""".stripMargin
   }
+
+  override def getVersion = { 0 }
 }
 
 case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -553,6 +608,8 @@ case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   }
 
   override def explanation(): String = s"are heap-reachable from objects that ${inner.explanation()}"
+
+  override def getVersion = { 0 }
 }
 
 case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -571,6 +628,8 @@ case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   }
 
   override def explanation(): String = s"are reachable from objects that ${inner.explanation()}"
+
+  override def getVersion = { 0 }
 }
 
 case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -590,6 +649,8 @@ case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   }
 
   override def explanation(): String = s"are able to heap-reach objects that ${inner.explanation()}"
+
+  override def getVersion = { 0 }
 }
 
 case class CanReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -608,6 +669,8 @@ case class CanReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   }
 
   override def explanation(): String = s"are able to reach objects that ${inner.explanation()}"
+
+  override def getVersion = { 0 }
 }
 
 case class TinyObj() extends VertexIdAnalyser {
@@ -624,6 +687,8 @@ case class TinyObj() extends VertexIdAnalyser {
        |   WHERE
        |     kind = 'field')""".stripMargin
   }
+
+  override def getVersion = { 0 }
 }
 
 object VertexIdAnalyserTest extends App {
