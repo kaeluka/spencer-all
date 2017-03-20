@@ -71,33 +71,3 @@ object AproposEvent {
 
 case class BenchmarkMetaInfo(name: String, objCount: Long, date: String, comment: String)
 
-trait SpencerDBs {
-  def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo]
-}
-
-trait SpencerDB {
-  def handleEvent(evt: AnyEvt.Reader, idx: Long)
-
-  def aproposObject(tag: Long): AproposData
-
-  def selectFrame(tblName: String, sql : String) : DataFrame = {
-    val f = getFrame(tblName)
-    f.createOrReplaceTempView(tblName)
-    println(s"sql:\n$sql")
-    this.sqlContext.sql(sql)
-  }
-
-  def getCachedOrDo(name: String, f: () => DataFrame) : DataFrame
-
-  def getFrame(name: String): DataFrame
-
-  def connect()
-
-  def shutdown()
-
-  val sqlContext : SQLContext
-
-  def getGraph(): Graph[ObjDesc, EdgeDesc]
-
-}
-

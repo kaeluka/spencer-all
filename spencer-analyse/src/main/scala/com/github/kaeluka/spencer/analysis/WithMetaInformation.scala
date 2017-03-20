@@ -1,5 +1,7 @@
 package com.github.kaeluka.spencer.analysis
 
+import java.sql.ResultSet
+
 import com.github.kaeluka.spencer.PostgresSpencerDB
 import com.google.common.base.Stopwatch
 import org.apache.spark.graphx._
@@ -17,7 +19,7 @@ case class ObjWithMeta(oid: VertexId,
                        numCalls: Long)
 
 case class ConnectedComponent() extends VertexIdAnalyser {
-  def analyse(implicit g: SpencerDB): DataFrame = {
+  override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
     import g.sqlContext.implicits._
     val graph: Graph[ObjDesc, EdgeDesc] = g.getGraph()
     val components: Graph[VertexId, EdgeDesc] = graph.subgraph(epred = _.attr.kind == EdgeKind.FIELD).connectedComponents()
@@ -39,31 +41,12 @@ case class ConnectedComponent() extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[DataFrame] {
+case class WithMetaInformation(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 
   override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
-    val matchingIDs = inner.analyse(g)
-
     println("getting meta info")
     println("WARNING: GETTING ALL META INFO! USE JOINS!")
-
-    g.getFrame("calls").createOrReplaceTempView("calls")
-    g.getFrame("uses").createOrReplaceTempView("uses")
-    g.selectFrame("objects",
-        """SELECT
-      |  id,
-      |  first(klass) AS klass,
-      |  first(allocationsitefile) AS allocationsitefile,
-      |  first(allocationsiteline) AS allocationsiteline,
-      |  first(firstusage) AS firstusage,
-      |  first(lastusage) AS lastusage,
-      |  COUNT(calls.callee) as numCalls,
-      |  first(objects.thread) as thread
-      |FROM objects
-      |LEFT OUTER JOIN calls ON calls.callee = objects.id
-      |GROUP by objects.id
-      |""".stripMargin)
+    super.analyse
   }
 
   override def pretty(result: DataFrame): String = {
@@ -85,6 +68,23 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends SpencerAnalyser[
 
   override def explanation(): String = inner.explanation()
 
+  override def getVersion = { 0 }
+
+  override def getSQLBlueprint = {
+    """SELECT
+      |  id,
+      |  klass AS klass,
+      |  allocationsitefile AS allocationsitefile,
+      |  allocationsiteline AS allocationsiteline,
+      |  firstusage AS firstusage,
+      |  lastusage AS lastusage,
+      |  COUNT(calls.callee) as numCalls,
+      |  objects.thread as thread
+      |FROM objects
+      |LEFT OUTER JOIN calls ON calls.callee = objects.id
+      |GROUP by objects.id
+      |""".stripMargin
+  }
 }
 
 object WithMetaInformationTest extends App {

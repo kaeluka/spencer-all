@@ -1,5 +1,7 @@
 package com.github.kaeluka.spencer.analysis
 
+import java.sql.ResultSet
+
 import com.github.kaeluka.spencer.PostgresSpencerDB
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
 import com.google.common.base.Stopwatch
@@ -12,7 +14,12 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
   override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
     g.prepareCaches(this.precacheInnersSQL)
     g.getCachedOrRunQuery(this)
+    new RuntimeException("WARNING: using analyse").printStackTrace()
     g.selectFrame(this.cacheKey, this.getCacheSQL)
+  }
+
+  def analyseJDBC(implicit g: PostgresSpencerDB) : ResultSet = {
+    g.getCachedOrRunQuery(this)
   }
 
   override def pretty(result: DataFrame): String = {
@@ -30,6 +37,42 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
   def getVersion: Int
 
   /**
+    * Produce a dependency tree (JSON) in this format:
+    * {
+    *  "And(StationaryObj() And(MutableObj() UniqueObj()))": {
+    *    "StationaryObj()": {
+    *      "NonStationaryObj()": { cache: "cache__1837766281_0" }
+    *      cache: "cache_563859730_0"
+    *    },
+    *    "And(MutableObj() UniqueObj())": {
+    *      "MutableObj()": { cache: "cache_39765202_0" },
+    *      "UniqueObj()": { cache: "cache__267503929_0" }
+    *      cache: "cache__1300376285_0"
+    *    }
+    *    cache: "cache__982222453_0"
+    *  }
+    *}
+    * @return the dependency tree of the query, formatted as JSON
+    */
+  def dependencyTree() : String = {
+    s"""{
+       |  ${indentedInner(dependencyTree_(), 2)}
+       |}""".stripMargin
+  }
+
+  def dependencyTree_() : String = {
+    val ret = if (this.getInners.size > 0) {
+      val deps = indentedInner(this.getInners.map(inner => inner.dependencyTree_()).mkString(",\n"), 2)
+      s"""\"${this.toString}\": {
+          |  $deps
+          |}""".stripMargin
+    } else {
+      s"""\"${this.toString}\": { }"""
+    }
+    ret
+  }
+
+  /**
     * Gives a sequence of SQL commands that can pre-cache the results.
     * If the cache already exists, these queries will *not* rerun it
     * @return a sequence of commands (as Strings) that can pre-cache the results
@@ -45,12 +88,38 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
     x
   }
 
+  def indentedInner(inner : String, lvl : Int): String = {
+    val lines = inner.lines
+    assert(lines.hasNext)
+    var ret = lines.next()
+    while (lines.hasNext) {
+      ret = ret + "\n" + (" " * lvl) + lines.next()
+    }
+    ret
+  }
+  def replaceQuestionMark(blueprint: String, inner : String) : String = {
+    val lines = blueprint.lines
+    var done = false
+    var ret = null : String
+    while (lines.hasNext && ! done) {
+      val line = lines.next()
+      val i = line.indexOf('?')
+      if (i >= 0) {
+        ret = blueprint.replaceFirst("\\?", indentedInner(inner, i))
+        done = true
+      }
+    }
+
+    assert(ret != null)
+    ret
+  }
+
   def getSQL: String = {
     var blueprint = getSQLBlueprint
     val inners = getInners
     assert(blueprint.count(_ == '?') == getInners.size)
     for (inner <- inners) {
-      blueprint = blueprint.replaceFirst("\\?", inner.getSQL)
+      blueprint = replaceQuestionMark(blueprint, inner.getSQL)
     }
     blueprint
   }
@@ -59,7 +128,7 @@ trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
     assert(this.getSQLBlueprint.count(_ == '?') == getInners.size)
     var assembledSQL = getSQLBlueprint
     for (inner <- this.getInners) {
-      assembledSQL = assembledSQL.replaceFirst("\\?", inner.getCacheSQL)
+      assembledSQL = replaceQuestionMark(assembledSQL, inner.getCacheSQL)
     }
     assembledSQL
   }
@@ -212,11 +281,10 @@ case class MutableObj() extends VertexIdAnalyser {
 
   override def getSQLBlueprint = {
     """SELECT DISTINCT callee AS id
-     |FROM uses_cstore
-     |WHERE
-     |  callee > 4 AND
-     |  NOT(caller = callee AND method = '<init>') AND
-     |  (kind = 'fieldstore' OR kind = 'modify')""".stripMargin
+      |FROM   uses_cstore
+      |WHERE  callee > 4
+      |AND    NOT(caller = callee AND method = '<init>')
+      |AND    (kind = 'fieldstore' OR kind = 'modify')""".stripMargin
   }
 
   override def getVersion: Int = { 0 }
@@ -376,9 +444,9 @@ case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser 
   override def explanation(): String = "were allocated at "+allocationSite._1+":"+allocationSite._2
 
   override def getSQLBlueprint = {
-    s"""SELECT id FROM objects WHERE
-       |allocationsitefile = '${allocationSite._1}' AND
-       |allocationsiteline = ${allocationSite._2}""".stripMargin
+    s"""SELECT id FROM objects
+       |WHERE  allocationsitefile = '${allocationSite._1}'
+       |AND    allocationsiteline = ${allocationSite._2}""".stripMargin
   }
 
   override def getVersion = { 0 }
@@ -551,15 +619,12 @@ case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getInners = List(inner)
 
   override def getSQLBlueprint = {
-    s"""SELECT
-       |  callee AS id
-       |FROM
-       |  refs
-       |WHERE
-       |  kind = 'field' AND
-       |  caller IN (
-       |    ?
-       |  )""".stripMargin
+    s"""SELECT callee AS id
+       |FROM   refs
+       |WHERE  kind = 'field'
+       |AND    caller IN (
+       |  ?
+       |)""".stripMargin
   }
 
   override def getVersion = { 0 }
@@ -691,13 +756,14 @@ object VertexIdAnalyserTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = QueryParser.parseObjQuery("MutableObj()").right.get
+  val q = QueryParser.parseObjQuery("And(StationaryObj() And(MutableObj() UniqueObj()))").right.get
   println(q.toString)
   println(s"getSQL:\n${q.getSQL}")
   println(s"precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}")
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
   println(s"getCacheSQL: ${q.getCacheSQL}")
-//  sys.exit()
+  println(s"dependencyTree:\n${q.dependencyTree()}")
+  sys.exit()
   val res = q.analyse //AgeOrderedObj().analyse
 
   res.repartition()

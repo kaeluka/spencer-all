@@ -18,7 +18,7 @@ import org.postgresql.util.PSQLException
 
 import scala.collection.JavaConversions._
 
-object PostgresSpencerDBs extends SpencerDBs {
+object PostgresSpencerDBs {
   val conf = new SparkConf()
     .setAppName("spencer-analyse")
 //    .set("spark.cassandra.connection.host", "127.0.0.1")
@@ -35,7 +35,7 @@ object PostgresSpencerDBs extends SpencerDBs {
     PostgresSpencerDBs.sc.stop()
   }
 
-  override def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo] = {
+  def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo] = {
     val conn = DriverManager.getConnection("jdbc:postgresql:template1")
     var benchmarks = List[BenchmarkMetaInfo]()
     val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
@@ -85,7 +85,7 @@ object PostgresSpencerDBs extends SpencerDBs {
   }
 }
 
-class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends SpencerDB {
+class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
   var conn : Connection = _
 
   val sqlContext: SQLContext = if (startSpark) {
@@ -99,7 +99,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
   if (startSpark) {
   }
 
-  override def shutdown() = {
+  def shutdown() = {
     this.conn.close()
   }
 
@@ -422,7 +422,6 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
       case e: PSQLException =>
         this.conn.commit()
 
-        println(s"CREATE TABLE IF NOT EXISTS $cacheKey AS $sql ;")
         this.conn.createStatement().execute(
           s"CREATE TABLE IF NOT EXISTS $cacheKey AS $sql ;")
         this.conn.commit()
@@ -431,25 +430,25 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     ret
   }
 
-  def getCachedOrDo(query: String, f: () => DataFrame): DataFrame = {
-    val name = "cache_"+ query.hashCode.toString.replaceAll("-", "_")
-    var ret : DataFrame = null
-    try {
-      ret = getFrame(name)
-      println(s"$query: found cached frame ($name)")
-    } catch {
-      case e:Throwable => {
-        println(s"$query: didn't find cached frame ($name)")
-        ret = f()
-        assert(ret != null, "need result!")
-        assert(ret.write != null )
-        assert(ret.write.mode(SaveMode.Ignore) != null )
-        println(s"$query: caching in $name: ${ret.count()} records")
-        ret.write.mode(SaveMode.Ignore).jdbc(s"jdbc:postgresql:$dbname", name, new java.util.Properties())
-      }
-    }
-    ret
-  }
+//  def getCachedOrDo(query: String, f: () => DataFrame): DataFrame = {
+//    val name = QueryParser.parseObjQuery(query).right.get.cacheKey
+//    var ret : DataFrame = null
+//    try {
+//      ret = getFrame(name)
+//      println(s"$query: found cache $name")
+//    } catch {
+//      case e:Throwable => {
+//        println(s"$query: didn't find cache $name")
+//        ret = f()
+//        assert(ret != null, "need result!")
+//        assert(ret.write != null )
+//        assert(ret.write.mode(SaveMode.Ignore) != null )
+//        println(s"$query: caching in $name: ${ret.count()} records")
+//        ret.write.mode(SaveMode.Ignore).jdbc(s"jdbc:postgresql:$dbname", name, new java.util.Properties())
+//      }
+//    }
+//    ret
+//  }
 
   def getObjPercentage(query: String): Option[Float] = {
     QueryParser.parseObjQuery(query) match {
@@ -559,14 +558,15 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
     }
   }
 
-
-  override def selectFrame(tblName: String, sql: String): DataFrame = {
+  def selectFrame(tblName: String, sql: String): DataFrame = {
     val eq = QueryParser.parseObjQuery(sql)
     if (eq.isRight) {
       //FIXME: this is a hack! we should get rid of Spark alltogether
       this.getCachedOrRunQuery(eq.right.get).close()
     }
-    super.selectFrame(tblName, sql)
+    val f = getFrame(tblName)
+    f.createOrReplaceTempView(tblName)
+    this.sqlContext.sql(sql)
   }
 
   def aproposObject(tag: Long): AproposData = {
@@ -627,7 +627,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
         .sortBy(AproposEvent.startTime).distinct().collect(), klass)
   }
 
-//  override def selectFrame(query: String) : DataFrame = {
+//  def selectFrame(query: String) : DataFrame = {
 //    this.sqlContext.sql(query.replace("FROM ", s"FROM ${this.dbname}."))
 //  }
 
@@ -849,14 +849,12 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) extends Spen
 
     val segments = for (i <- 0 until relPath.getNameCount) yield relPath.getName(i)
     val className = segments.mkString(".").replace(".class", "")
-//    print(s"storing class $className...")
     val fileStream = new FileInputStream(file)
 
     val stat = this.conn.prepareStatement("INSERT INTO classdumps VALUES (?, ?)")
     stat.setString(1, className)
     stat.setBinaryStream(2, fileStream)
     stat.execute()
-//    println("done")
   }
 
   def loadBytecodeDir(logDir: Path) = {
