@@ -516,18 +516,15 @@ case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getInners = List(inner)
 
   override def getSQLBlueprint = {
-    s"""SELECT
-       |  callee AS id
-       |FROM
-       |  refs
-       |WHERE
-       |  kind = 'field' AND
-       |  callee IN (
-       |    ?
-       |  )""".stripMargin
+    s"""SELECT caller AS id
+       |FROM   refs
+       |WHERE  kind = 'field'
+       |AND    callee IN (
+       |  ?
+       |)""".stripMargin
   }
 
-  override def getVersion = { 0 }
+  override def getVersion = { 1 }
 }
 
 case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -537,17 +534,14 @@ case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getInners = List(inner)
 
   override def getSQLBlueprint = {
-    s"""SELECT
-       |  callee AS id
-       |FROM
-       |  refs
-       |WHERE
-       |  callee IN (
-       |    ?
-       |  )""".stripMargin
+    s"""SELECT caller AS id
+       |FROM   refs
+       |WHERE  callee IN (
+       |  ?
+       |)""".stripMargin
   }
 
-  override def getVersion = { 0 }
+  override def getVersion = { 1 }
 }
 
 case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
@@ -703,6 +697,7 @@ object VertexIdAnalyserTest extends App {
   println(s"precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}")
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
   println(s"getCacheSQL: ${q.getCacheSQL}")
+//  sys.exit()
   val res = q.analyse //AgeOrderedObj().analyse
 
   res.repartition()
