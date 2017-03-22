@@ -15,6 +15,14 @@ trait SpencerAnalyser[T] {
   def explanation(): String
 }
 
+case class Apropos(id: Long) extends SpencerAnalyser[AproposData] {
+  override def analyse(implicit g: PostgresSpencerDB): AproposData = {
+    g.aproposObject(id)
+  }
+
+  override def explanation(): String = "the history of an object"
+}
+
 case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
   override def analyse(implicit g: PostgresSpencerDB): Option[String] = {
     val resultSet = g.runSQLQuery(s"SELECT bytecode FROM classdumps WHERE classname = '$klass'")

@@ -1,14 +1,8 @@
-package com.github.kaeluka.spencer.analysis
+package com.github.kaeluka.spencer
 
-import java.io.{File, FileInputStream, InputStream}
-import java.util
-import java.util.logging.LogManager
+import com.github.kaeluka.spencer.tracefiles.{EventsUtil, TraceFiles}
 
-import com.github.kaeluka.spencer.Events.AnyEvt
-import com.github.kaeluka.spencer.tracefiles.{EventsUtil, TraceFile, TraceFiles}
-import sun.nio.cs.StreamDecoder
-
-object spencercat extends App {
+object SpencerCat extends App {
 
   override def main(args: Array[String]): Unit = {
     val defaultFile = "/tmp/tracefile"
