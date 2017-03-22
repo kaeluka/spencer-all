@@ -2,35 +2,20 @@ package com.github.kaeluka.spencer
 
 import java.io._
 import java.nio.file.{Path, Paths}
-import java.sql.{Connection, DriverManager, ResultSet, SQLException}
-import java.util.{Calendar, Date, EmptyStackException}
+import java.sql.{Connection, DriverManager, ResultSet}
 import java.util.concurrent.TimeUnit
+import java.util.{Calendar, EmptyStackException}
 
 import com.github.kaeluka.spencer.Events.{AnyEvt, LateInitEvt, ReadModifyEvt}
 import com.github.kaeluka.spencer.analysis._
 import com.github.kaeluka.spencer.tracefiles.{EventsUtil, TraceFiles}
 import com.google.common.base.Stopwatch
 import org.apache.commons.io.FileUtils
-import org.apache.spark.graphx.{Edge, Graph}
-import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
-import org.apache.spark.{SparkConf, SparkContext}
 import org.postgresql.util.PSQLException
 
 import scala.collection.JavaConversions._
 
 object PostgresSpencerDBs {
-  val conf = new SparkConf()
-    .setAppName("spencer-analyse")
-    .set("spark.network.timeout", "1000")
-    .set("spark.executor.heartbeatInterval", "1000")
-    .setMaster("local[8]")
-
-  val sc : SparkContext = new SparkContext(conf)
-
-//  def shutdown() = {
-//    PostgresSpencerDBs.sc.stop()
-//  }
-
   def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo] = {
     val conn = DriverManager.getConnection("jdbc:postgresql:template1")
     var benchmarks = List[BenchmarkMetaInfo]()
@@ -80,16 +65,8 @@ object PostgresSpencerDBs {
   }
 }
 
-class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
+class PostgresSpencerDB(dbname: String) {
   var conn : Connection = _
-
-//  val sqlContext: SQLContext = if (startSpark) {
-//    val ctx = new SQLContext(PostgresSpencerDBs.sc)
-//    ctx.setConf("keyspace", dbname)
-//    ctx
-//  } else {
-//    null
-//  }
 
   def shutdown() = {
     this.conn.close()
@@ -403,7 +380,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
     * @return the result set, stemming either from loading the cache,
     *         or from running the full query
     */
-  def getCachedOrRunQuery(query: VertexIdAnalyser): ResultSet = {
+  def getCachedOrRunQuery(query: SpencerQuery): ResultSet = {
     this.prepareCaches(query.precacheInnersSQL)
     this.getCachedOrRunSQL(query.cacheKey, query.getSQLUsingCache)
   }
@@ -550,17 +527,6 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
     }
   }
 
-//  def selectFrame(tblName: String, sql: String): DataFrame = {
-//    val eq = QueryParser.parseObjQuery(sql)
-//    if (eq.isRight) {
-//      //FIXME: this is a hack! we should get rid of Spark alltogether
-//      this.getCachedOrRunQuery(eq.right.get).close()
-//    }
-//    val f = getFrame(tblName)
-//    f.createOrReplaceTempView(tblName)
-//    this.sqlContext.sql(sql)
-//  }
-
   def aproposObject(tag: Long): AproposData = {
     val theObj = this.runSQLQuery(s"SELECT klass FROM objects WHERE id = $tag")
 
@@ -624,44 +590,6 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
 
     AproposData(None, evts, klass)
   }
-
-//  def getFrame(table: String): DataFrame = {
-//    val opts = Map(
-//      "url" -> s"jdbc:postgresql:$dbname",
-//      "dbtable" -> table
-//    )
-//
-//    this.sqlContext.read.format("jdbc").options(opts).load()
-//  }
-
-//  private def initGraph: Graph[ObjDesc, EdgeDesc] = {
-//    import sqlContext.implicits._
-//    val objs = this.getFrame("objects").select("id", "klass").as[(Long, String)].map {
-//      case (id, k) => (id, ObjDesc(klass = Option(k)))
-//    }
-//    val refs = this.getFrame("refs").select("caller", "callee", "refstart", "refend", "kind")
-//      .rdd
-//      .map(row => {
-//        val fr = Option(row.getAs[Long]("refstart"))
-//        val to = Option(row.getAs[Long]("refend"))
-//        Edge(
-//          row.getAs[Long]("caller"),
-//          row.getAs[Long]("callee"),
-//          EdgeDesc(fr, to, EdgeKind.fromRefsKind(row.getAs[String]("kind"))))
-//      })
-//
-//    val g: Graph[ObjDesc, EdgeDesc] =
-//      Graph(objs.rdd, refs)
-//    g.cache()
-//    g
-//  }
-
-//  private lazy val g = initGraph
-
-
-//  def getGraph(): Graph[ObjDesc, EdgeDesc] = {
-//    this.g
-//  }
 
   def clearCaches(dbname: String, onlyStatistics: Boolean = false): Unit = {
     val conn = DriverManager.getConnection("jdbc:postgresql:"+dbname)

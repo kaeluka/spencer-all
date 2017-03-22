@@ -34,7 +34,7 @@ object SpencerLoad {
     println("spencer loader starting...")
     println("loading "+path+" as '"+name+"'")
 
-    val db = new PostgresSpencerDB(name, false)
+    val db = new PostgresSpencerDB(name)
     db.loadFrom(path, Paths.get(oBytecodeDir.getOrElse(Paths.get(path).getParent.toString+"/log/")))
     println("done")
     sys.exit(0)

@@ -17,7 +17,7 @@ object SpencerCache {
     println("spencer cache tool starting...")
     println(s"caching in database $name")
 
-    val db = new PostgresSpencerDB(name, false)
+    val db = new PostgresSpencerDB(name)
     db.connect()
     if (args.contains("--clear")) {
       print("clearing all caches first..")
@@ -35,5 +35,6 @@ object SpencerCache {
       println("caching done")
       sys.exit(0)
     }
+    db.shutdown()
   }
 }

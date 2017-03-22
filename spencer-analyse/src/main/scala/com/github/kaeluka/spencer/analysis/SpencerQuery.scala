@@ -5,34 +5,14 @@ import java.sql.ResultSet
 import com.github.kaeluka.spencer.PostgresSpencerDB
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
 import com.google.common.base.Stopwatch
-import org.apache.spark.graphx._
-import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.functions._
 
-trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
+trait SpencerQuery extends SpencerAnalyser[ResultSet] {
 
-  @deprecated
-  override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
-    g.prepareCaches(this.precacheInnersSQL)
-    g.getCachedOrRunQuery(this).close()
-    throw new RuntimeException("WARNING: analyse")
-  }
-
-  def analyseJDBC(implicit g: PostgresSpencerDB) : ResultSet = {
+  def analyse(implicit g: PostgresSpencerDB) : ResultSet = {
     g.getCachedOrRunQuery(this)
   }
 
-  override def pretty(result: DataFrame): String = {
-    val N = result.count()
-    val resString = if (N > 100) {
-      result.take(100).toString
-    } else {
-      result.toString()
-    }
-    this.explanation()+":\n"+resString
-  }
-
-  def getInners: Seq[VertexIdAnalyser] = List()
+  def getInners: Seq[SpencerQuery] = List()
 
   def getVersion: Int
 
@@ -150,24 +130,7 @@ object AnaUtil {
   }
 }
 
-//object And {
-//  def apply(vs: Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
-//    val vs_ = vs
-//      .filter(_.toString != "Obj()")
-//      .flatMap({
-//        case _And(innerVs) => innerVs
-//        case other => List(other)
-//      })
-//    assert(vs_.nonEmpty)
-//    if (vs_.size == 1) {
-//      vs_.head
-//    } else {
-//      _And(vs_)
-//    }
-//  }
-//}
-
-case class And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
+case class And(vs: Seq[SpencerQuery]) extends SpencerQuery {
 
   override def explanation(): String = vs.map(_.explanation()).mkString(", and ")
 
@@ -186,22 +149,7 @@ case class And(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   override def getVersion: Int = { 0 }
 }
 
-//object Or {
-//  def apply(vs_ : Seq[VertexIdAnalyser]) : VertexIdAnalyser = {
-//    vs_.find(_.toString == "Obj()") match {
-//      case Some(q) => q
-//      case None =>
-//        val vs = vs_
-//          .flatMap({
-//            case _Or(innerVs) => innerVs
-//            case other => List(other)
-//          })
-//        _Or(vs)
-//    }
-//  }
-//}
-
-case class Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
+case class Or(vs: Seq[SpencerQuery]) extends SpencerQuery {
 
   override def explanation(): String = vs.map(_.explanation()).mkString(", or ")
 
@@ -220,7 +168,7 @@ case class Or(vs: Seq[VertexIdAnalyser]) extends VertexIdAnalyser {
   * filters for all objects that only ever have references to objects older than
   * them
   */
-case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
+case class ReverseAgeOrderedObj() extends SpencerQuery {
 
   override def explanation(): String = {
     "are only holding field references to objects created after them"
@@ -240,7 +188,7 @@ case class ReverseAgeOrderedObj() extends VertexIdAnalyser {
   * filters for all objects that only ever have references to objects younger than
   * them
   */
-case class AgeOrderedObj() extends VertexIdAnalyser {
+case class AgeOrderedObj() extends SpencerQuery {
 
   override def explanation(): String = {
     "are only holding field references to objects created before them"
@@ -256,7 +204,7 @@ case class AgeOrderedObj() extends VertexIdAnalyser {
   override def getVersion: Int = { 0 }
 }
 
-case class AgeOfNeighbours() extends VertexIdAnalyser {
+case class AgeOfNeighbours() extends SpencerQuery {
 
   override def explanation(): String = "Age"
 
@@ -275,7 +223,7 @@ case class AgeOfNeighbours() extends VertexIdAnalyser {
   override def getVersion: Int = { 0 }
 }
 
-case class MutableObj() extends VertexIdAnalyser {
+case class MutableObj() extends SpencerQuery {
 
   override def explanation(): String = "are changed outside their constructor"
 
@@ -291,12 +239,12 @@ case class MutableObj() extends VertexIdAnalyser {
 }
 
 object ThreadLocalObj {
-  def apply() : VertexIdAnalyser = {
+  def apply() : SpencerQuery = {
     Named(Not(NonThreadLocalObj()), "ThreadLocalObj()", "are accessed by only one thread")
   }
 }
 
-case class NonThreadLocalObj() extends VertexIdAnalyser {
+case class NonThreadLocalObj() extends SpencerQuery {
 
   override def explanation(): String = "are changed outside their constructor"
 
@@ -311,7 +259,7 @@ case class NonThreadLocalObj() extends VertexIdAnalyser {
   override def getVersion: Int = { 0 }
 }
 
-case class UniqueObj() extends VertexIdAnalyser {
+case class UniqueObj() extends SpencerQuery {
   override def getSQLBlueprint = {
     """SELECT callee AS id FROM
       |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
@@ -333,7 +281,7 @@ case class UniqueObj() extends VertexIdAnalyser {
   override def getVersion: Int = { 0 }
 }
 
-case class HeapUniqueObj() extends VertexIdAnalyser {
+case class HeapUniqueObj() extends SpencerQuery {
   override def getSQLBlueprint = {
     """SELECT callee AS id FROM
       |(SELECT callee, time, SUM(delta) OVER(PARTITION BY callee ORDER BY time) AS sum_at_time
@@ -355,7 +303,7 @@ case class HeapUniqueObj() extends VertexIdAnalyser {
   override def getVersion: Int = { 0 }
 }
 
-case class StackBoundObj() extends VertexIdAnalyser {
+case class StackBoundObj() extends SpencerQuery {
   override def getSQLBlueprint = {
     """SELECT id
       |FROM   objects
@@ -375,7 +323,7 @@ case class StackBoundObj() extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class ImmutableObj() extends VertexIdAnalyser {
+case class ImmutableObj() extends SpencerQuery {
 
   override def explanation(): String = "are never changed outside their constructor"
 
@@ -388,7 +336,7 @@ case class ImmutableObj() extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class StationaryObj() extends VertexIdAnalyser {
+case class StationaryObj() extends SpencerQuery {
   val inner = Not(NonStationaryObj())
   override def getSQLBlueprint = {
     inner.getSQLBlueprint
@@ -402,7 +350,7 @@ case class StationaryObj() extends VertexIdAnalyser {
 }
 
 
-case class NonStationaryObj() extends VertexIdAnalyser {
+case class NonStationaryObj() extends SpencerQuery {
 
   override def explanation(): String = "are changed after being read from"
 
@@ -423,7 +371,7 @@ case class NonStationaryObj() extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class Obj() extends VertexIdAnalyser {
+case class Obj() extends SpencerQuery {
 
   override def explanation(): String = "were traced"
 
@@ -434,7 +382,7 @@ case class Obj() extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser {
+case class AllocatedAt(allocationSite: (String, Long)) extends SpencerQuery {
 
   override def toString: String = {
     "AllocatedAt("+allocationSite._1+":"+allocationSite._2.toString+")"
@@ -451,7 +399,7 @@ case class AllocatedAt(allocationSite: (String, Long)) extends VertexIdAnalyser 
   override def getVersion = { 0 }
 }
 
-case class InstanceOf(klassName: String) extends VertexIdAnalyser {
+case class InstanceOf(klassName: String) extends SpencerQuery {
 
   def this(klass: Class[_]) =
     this(klass.getName)
@@ -466,14 +414,14 @@ case class InstanceOf(klassName: String) extends VertexIdAnalyser {
 }
 
 object Not {
-  def apply(inner: VertexIdAnalyser) : VertexIdAnalyser = {
+  def apply(inner: SpencerQuery) : SpencerQuery = {
     inner match {
       case n: Not_ => n.inner
       case _       => Not_(inner)
     }
   }
 }
-case class Not_(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class Not_(inner: SpencerQuery) extends SpencerQuery {
 
   override def explanation(): String = "not "+inner.explanation()
 
@@ -492,16 +440,14 @@ case class Not_(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 }
 
 object Named {
-  def apply(inner: VertexIdAnalyser, name: String) = {
+  def apply(inner: SpencerQuery, name: String) = {
     new Named(inner, name)
   }
 }
-case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends VertexIdAnalyser {
+case class Named(inner: SpencerQuery, name: String, expl: String) extends SpencerQuery {
 
-  def this(inner: VertexIdAnalyser, name: String) =
+  def this(inner: SpencerQuery, name: String) =
     this(inner, name, inner.explanation())
-
-  override def pretty(result: DataFrame): String = inner.pretty(result)
 
   override def toString: String = name
 
@@ -518,8 +464,8 @@ case class Named(inner: VertexIdAnalyser, name: String, expl: String) extends Ve
   override def getVersion = { 0 }
 }
 
-case class Deeply(inner: VertexIdAnalyser,
-                  edgeFilter : Option[EdgeKind] = None) extends VertexIdAnalyser {
+case class Deeply(inner: SpencerQuery,
+                  edgeFilter : Option[EdgeKind] = None) extends SpencerQuery {
   val reachability = edgeFilter match {
       case None => CanReach
       case Some(EdgeKind.FIELD) => CanHeapReach
@@ -545,11 +491,7 @@ case class Deeply(inner: VertexIdAnalyser,
   override def getVersion = { 0 }
 }
 
-case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
-
-  override def pretty(result: DataFrame): String = {
-    value.mkString("[ ", ", ", " ]")
-  }
+case class ConstSeq(value: Seq[Long]) extends SpencerQuery {
 
   override def explanation(): String = "any of "+value.mkString("{", ", ", "}")
 
@@ -560,19 +502,7 @@ case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class Const(value: DataFrame) extends VertexIdAnalyser {
-  override def analyse(implicit g: PostgresSpencerDB):DataFrame = value
-
-  override def pretty(result: DataFrame): String = this.toString
-
-  override def explanation(): String = "constant set "+value.toString
-
-  override def getSQLBlueprint = ??? //FIXME
-
-  override def getVersion = { 0 }
-}
-
-case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class HeapRefersTo(inner: SpencerQuery) extends SpencerQuery {
 
   override def explanation(): String = "are field-referring to objects that "+inner.explanation()
 
@@ -590,7 +520,7 @@ case class HeapRefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getVersion = { 1 }
 }
 
-case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class RefersTo(inner: SpencerQuery) extends SpencerQuery {
 
   override def explanation(): String = "are referring to objects that "+inner.explanation()
 
@@ -607,7 +537,7 @@ case class RefersTo(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getVersion = { 1 }
 }
 
-case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class HeapReferredFrom(inner: SpencerQuery) extends SpencerQuery {
 
   override def explanation(): String = "are heap-referred to from objects that "+inner.explanation()
 
@@ -625,7 +555,7 @@ case class HeapReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class ReferredFrom(inner: SpencerQuery) extends SpencerQuery {
 
   override def explanation(): String = "are referred to from objects that "+inner.explanation()
 
@@ -645,7 +575,7 @@ case class ReferredFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class HeapReachableFrom(inner: SpencerQuery) extends SpencerQuery {
   override def getInners = List(inner)
 
   override def getSQLBlueprint = {
@@ -666,7 +596,7 @@ case class HeapReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class ReachableFrom(inner: SpencerQuery) extends SpencerQuery {
   override def getInners = List(inner)
 
   override def getSQLBlueprint = {
@@ -686,7 +616,7 @@ case class ReachableFrom(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class CanHeapReach(inner: SpencerQuery) extends SpencerQuery {
   override def getInners = List(inner)
 
   override def getSQLBlueprint = {
@@ -707,7 +637,7 @@ case class CanHeapReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class CanReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class CanReach(inner: SpencerQuery) extends SpencerQuery {
   override def getInners = List(inner)
 
   override def getSQLBlueprint = {
@@ -727,7 +657,7 @@ case class CanReach(inner: VertexIdAnalyser) extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-case class TinyObj() extends VertexIdAnalyser {
+case class TinyObj() extends SpencerQuery {
 
   override def explanation(): String = "do not have or do not use reference type fields"
 
@@ -745,7 +675,7 @@ case class TinyObj() extends VertexIdAnalyser {
   override def getVersion = { 0 }
 }
 
-object VertexIdAnalyserTest extends App {
+object SpencerQueryTest extends App {
 
   implicit val db: PostgresSpencerDB = new PostgresSpencerDB("test")
   db.connect()
@@ -758,14 +688,16 @@ object VertexIdAnalyserTest extends App {
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
   println(s"getCacheSQL: ${q.getCacheSQL}")
   println(s"dependencyTree:\n${q.dependencyTree()}")
-  sys.exit()
+//  sys.exit()
   val res = q.analyse //AgeOrderedObj().analyse
 
-  res.repartition()
-  res.show()
+  var cnt = 0
+  while (res.next()) {
+    cnt += 1
+  }
   println(
     s"""analysis took ${watch.stop()}
-       |got ${res.count} objects
+       |got $cnt objects
        |getSQL:\n${q.getSQL}
        |precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}
        |getSQLUsingCache:\n${q.getSQLUsingCache}""".stripMargin)

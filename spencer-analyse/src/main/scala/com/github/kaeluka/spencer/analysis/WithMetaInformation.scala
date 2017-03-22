@@ -1,14 +1,8 @@
 package com.github.kaeluka.spencer.analysis
 
-import java.sql.ResultSet
-
 import com.github.kaeluka.spencer.PostgresSpencerDB
-import com.google.common.base.Stopwatch
-import org.apache.spark.graphx._
-import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.DataFrame
 
-case class ObjWithMeta(oid: VertexId,
+case class ObjWithMeta(oid: Long,
                        klass: Option[String],
                        allocationSite: Option[String],
                        firstusage: Long,
@@ -18,16 +12,12 @@ case class ObjWithMeta(oid: VertexId,
                        numFieldReads: Long,
                        numCalls: Long)
 
-case class WithMetaInformation(inner: VertexIdAnalyser) extends VertexIdAnalyser {
+case class WithMetaInformation(inner: SpencerQuery) extends SpencerQuery {
 
-  override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
+  override def analyse(implicit g: PostgresSpencerDB) = {
     println("getting meta info")
     println("WARNING: GETTING ALL META INFO! USE JOINS!")
     super.analyse
-  }
-
-  override def pretty(result: DataFrame): String = {
-    result.toString()
   }
 
   def availableVariables : Map[String,String] = {
@@ -64,12 +54,3 @@ case class WithMetaInformation(inner: VertexIdAnalyser) extends VertexIdAnalyser
   }
 }
 
-object WithMetaInformationTest extends App {
-
-  implicit val db: PostgresSpencerDB = new PostgresSpencerDB("test")
-  db.connect()
-
-  val watch: Stopwatch = Stopwatch.createStarted()
-  AgeOrderedObj().analyse.show()
-  println("analysis took "+watch.stop())
-}

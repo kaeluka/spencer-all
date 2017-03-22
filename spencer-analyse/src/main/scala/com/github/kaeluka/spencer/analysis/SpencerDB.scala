@@ -1,15 +1,9 @@
 package com.github.kaeluka.spencer.analysis
 
-import java.util.Date
-
-import com.github.kaeluka.spencer.Events.AnyEvt
-import org.apache.spark.graphx.{Graph, VertexId}
-import org.apache.spark.sql.{DataFrame, SQLContext}
-
 sealed trait AproposEvent
-case class AproposUseEvent(caller: VertexId, callee: VertexId, start: Long, kind: String, name: String, thread: String, msg: String) extends AproposEvent
-case class AproposCallEvent(caller: VertexId, callee: VertexId, start: Long, end: Long, name: String, callsite: String, thread: String, msg: String) extends AproposEvent
-case class AproposRefEvent(holder: VertexId, referent: VertexId, start: Long, end: Option[Long], name: String, kind: String, thread: String, msg: String) extends AproposEvent
+case class AproposUseEvent(caller: Long, callee: Long, start: Long, kind: String, name: String, thread: String, msg: String) extends AproposEvent
+case class AproposCallEvent(caller: Long, callee: Long, start: Long, end: Long, name: String, callsite: String, thread: String, msg: String) extends AproposEvent
+case class AproposRefEvent(holder: Long, referent: Long, start: Long, end: Option[Long], name: String, kind: String, thread: String, msg: String) extends AproposEvent
 
 case class AproposData(alloc: Option[Map[String, Any]], evts: Seq[AproposEvent], klass : Option[String])
 

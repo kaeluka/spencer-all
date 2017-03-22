@@ -1,28 +1,4 @@
 package com.github.kaeluka.spencer.analysis
-import com.github.kaeluka.spencer.PostgresSpencerDB
-import org.apache.spark.graphx._
-
-
-object SpencerGraphImplicits {
-
-//  implicit def spencerDbToFilteredGraph(db: PostgresSpencerDB): FilteredGraph = {
-//    new FilteredGraph(spencerDbToSpencerGraph(db).graph)
-//  }
-
-//  implicit def spencerDbToGraph(db: PostgresSpencerDB): Graph[ObjDesc, EdgeDesc] = {
-//    spencerDbToSpencerGraph(db).graph
-//  }
-
-//  implicit def spencerDbToFilteredGraph(db: SpencerDB) : FilteredGraph = {
-//    spencerGraphToFilteredGraph(spencerDbToSpencerGraph(db))
-//  }
-
-  implicit def filteredGraphToGraph(fg: FilteredGraph): Graph[ObjDesc, EdgeDesc] = {
-    fg.graph
-  }
-}
-
-
 
 case class ObjDesc(klass: Option[String])
 
@@ -75,22 +51,3 @@ object UseKind extends Enumeration {
   }
 }
 
-/**
-  * A graph that can be filtered, using the builder pattern.
-  * @param graph the graph to be filtered
-  */
-class FilteredGraph(val graph: Graph[ObjDesc, EdgeDesc]) {
-  def onlyEdgesToInstances(klass: String): FilteredGraph = {
-    new FilteredGraph(
-      this.graph.subgraph(
-        _.dstAttr.klass.contains(klass),
-        (_, _) => true))
-  }
-
-  def onlyEdgesToInstances(klass: Class[_]): FilteredGraph = {
-    new FilteredGraph(
-      this.graph.subgraph(
-        _.dstAttr.klass.contains(klass.getName),
-        (_, _) => true))
-  }
-}

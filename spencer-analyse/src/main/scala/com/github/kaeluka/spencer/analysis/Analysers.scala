@@ -5,8 +5,6 @@ import java.nio.charset.StandardCharsets
 
 import com.github.kaeluka.spencer.PostgresSpencerDB
 import com.google.common.base.Stopwatch
-import org.apache.spark.graphx.{Graph, VertexId}
-import org.apache.spark.rdd.RDD
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.util.TraceClassVisitor
 
@@ -14,21 +12,7 @@ import scala.language.implicitConversions
 
 trait SpencerAnalyser[T] {
   def analyse(implicit g: PostgresSpencerDB) : T
-  def pretty(result: T): String
   def explanation(): String
-}
-
-object SpencerAnalyserUtil {
-  def rddToString[T](rdd: RDD[T]) : String = {
-    val count = rdd.count()
-    if (count > 50) {
-      rdd
-        .takeSample(withReplacement = false, num = 50, seed = 0)
-        .mkString(count+" x\t- [ ", ", ", ", ... ]")
-    } else {
-      rdd.collect().mkString(count+" x\t- [ ", ", ", " ]")
-    }
-  }
 }
 
 case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
@@ -48,8 +32,6 @@ case class SourceCode(klass: String) extends SpencerAnalyser[Option[String]] {
     resultSet.close()
     ret
   }
-
-  override def pretty(result: Option[String]): String = result.toString
 
   override def explanation(): String = "shows the source code of a class"
 }

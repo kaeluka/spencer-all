@@ -5,7 +5,7 @@ import fastparse.core.Parsed
 
 object QueryParser {
 
-  def objQuery: P[VertexIdAnalyser] =
+  def objQuery: P[SpencerQuery] =
     primitiveObjQuery | parameterisedObjQuery
 
   def connectedWith =
@@ -55,10 +55,10 @@ object QueryParser {
   def isNot =
     P("Not("~objQuery~")").map(q => Not(q))
 
-  def parameterisedObjQuery : P[VertexIdAnalyser] =
+  def parameterisedObjQuery : P[SpencerQuery] =
     connectedWith | deeply | instanceOfKlass | allocatedAt | constSet | isNot | bigAnd | bigOr
 
-  def primitiveObjQuery : P[VertexIdAnalyser] = {
+  def primitiveObjQuery : P[SpencerQuery] = {
     P(("MutableObj()"
       | "ImmutableObj()"
       | "StationaryObj()"
@@ -98,8 +98,8 @@ object QueryParser {
       .replace("%5B", "[")
   }
 
-  def parseObjQuery(txt: String): Either[String, VertexIdAnalyser] = {
-    val res: Parsed[VertexIdAnalyser, Char, String] = objQuery.parse(
+  def parseObjQuery(txt: String): Either[String, SpencerQuery] = {
+    val res: Parsed[SpencerQuery, Char, String] = objQuery.parse(
       unescape(txt)
     )
     res match {
@@ -109,7 +109,7 @@ object QueryParser {
     }
   }
 
-  def primitiveQueries(klass: String = "java.lang.String", allocationSite: String = "String.java:1933") : List[VertexIdAnalyser] = {
+  def primitiveQueries(klass: String = "java.lang.String", allocationSite: String = "String.java:1933") : List[SpencerQuery] = {
     List("MutableObj()",
       "ImmutableObj()",
 //      "StationaryObj()",
@@ -132,7 +132,7 @@ object QueryParser {
       .map(_.right.get)
   }
 
-  def wrapQueries(queryCombinator: String, queries: List[VertexIdAnalyser]): List[VertexIdAnalyser] = {
+  def wrapQueries(queryCombinator: String, queries: List[SpencerQuery]): List[SpencerQuery] = {
     //println(s"wrapping: ${queryCombinator}")
     queries
       .map(q => s"$queryCombinator(${q.toString})")
@@ -140,8 +140,8 @@ object QueryParser {
       .map(_.right.get)
   }
 
-  def seriesOfQueries() : List[VertexIdAnalyser] = {
-    var ret: List[VertexIdAnalyser] = primitiveQueries()
+  def seriesOfQueries() : List[SpencerQuery] = {
+    var ret: List[SpencerQuery] = primitiveQueries()
     ret ++
       wrapQueries("CanReach", ret) ++
       wrapQueries("CanHeapReach", ret) ++
