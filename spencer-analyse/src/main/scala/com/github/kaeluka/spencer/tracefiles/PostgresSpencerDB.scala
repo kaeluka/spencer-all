@@ -21,19 +21,15 @@ import scala.collection.JavaConversions._
 object PostgresSpencerDBs {
   val conf = new SparkConf()
     .setAppName("spencer-analyse")
-//    .set("spark.cassandra.connection.host", "127.0.0.1")
     .set("spark.network.timeout", "1000")
     .set("spark.executor.heartbeatInterval", "1000")
     .setMaster("local[8]")
-    //      .set("spark.Postgres.connection.host", "130.238.10.30")
-    //      .setMaster("spark://Stephans-MacBook-Pro.local:7077")
-    //              .set("spark.executor.memory", "4g").set("worker_max_heap", "1g")
 
   val sc : SparkContext = new SparkContext(conf)
 
-  def shutdown() = {
-    PostgresSpencerDBs.sc.stop()
-  }
+//  def shutdown() = {
+//    PostgresSpencerDBs.sc.stop()
+//  }
 
   def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo] = {
     val conn = DriverManager.getConnection("jdbc:postgresql:template1")
@@ -45,7 +41,6 @@ object PostgresSpencerDBs {
       val dbname = rs.getString(1)
       try {
         val dbconn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
-        val meta = dbconn.getMetaData
 
         db = new PostgresSpencerDB(dbname)
         db.connect()
@@ -88,16 +83,13 @@ object PostgresSpencerDBs {
 class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
   var conn : Connection = _
 
-  val sqlContext: SQLContext = if (startSpark) {
-    val ctx = new SQLContext(PostgresSpencerDBs.sc)
-    ctx.setConf("keyspace", dbname)
-    ctx
-  } else {
-    null
-  }
-
-  if (startSpark) {
-  }
+//  val sqlContext: SQLContext = if (startSpark) {
+//    val ctx = new SQLContext(PostgresSpencerDBs.sc)
+//    ctx.setConf("keyspace", dbname)
+//    ctx
+//  } else {
+//    null
+//  }
 
   def shutdown() = {
     this.conn.close()
@@ -133,7 +125,6 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
             fieldload.getThreadName.toString)
         case AnyEvt.Which.FIELDSTORE =>
           val fstore = evt.getFieldstore
-//          assert(fstore.getHoldertag != 0, s"edge caller is 0! ${EventsUtil.fieldStoreToString(fstore)}")
           insertUse(
             caller  = fstore.getCallertag,
             callee  = fstore.getHoldertag,
@@ -208,86 +199,86 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
             case _: EmptyStackException =>
               throw new AssertionError("#"+idx+": empty stack for " + EventsUtil.messageToString(evt))
           }
-      case AnyEvt.Which.LATEINIT =>
-        val lateinit: LateInitEvt.Reader = evt.getLateinit
-        insertObject(lateinit.getCalleetag
-          , lateinit.getCalleeclass.toString
-          , "<jvm internals>"
-          , -1, "late initialisation")
-        for (fld <- lateinit.getFields) {
-          if (fld.getVal != 0) {
-            openEdge(lateinit.getCalleetag, fld.getVal, "field", fld.getName.toString, "<JVM thread>", 1)
+        case AnyEvt.Which.LATEINIT =>
+          val lateinit: LateInitEvt.Reader = evt.getLateinit
+          insertObject(lateinit.getCalleetag
+            , lateinit.getCalleeclass.toString
+            , "<jvm internals>"
+            , -1, "late initialisation")
+          for (fld <- lateinit.getFields) {
+            if (fld.getVal != 0) {
+              openEdge(lateinit.getCalleetag, fld.getVal, "field", fld.getName.toString, "<JVM thread>", 1)
+            }
           }
-        }
-      case AnyEvt.Which.READMODIFY =>
+        case AnyEvt.Which.READMODIFY =>
 
-        val readmodify: ReadModifyEvt.Reader = evt.getReadmodify
-        val caller: Long = readmodify.getCallertag
-        val callee: Long = readmodify.getCalleetag
-        val kind: String = if (readmodify.getIsModify) {
-          "modify"
-        } else {
-          "read"
-        }
-        insertUse(
-          caller = caller,
-          callee = callee,
-          method = stacks.peek(readmodify.getThreadName.toString).map(_.enter.getName.toString).getOrElse("<unknown>"),
-          kind = kind,
-          name = readmodify.getFname.toString,
-          idx = idx,
-          thread = readmodify.getThreadName.toString)
-      case AnyEvt.Which.VARLOAD =>
-        val varload: Events.VarLoadEvt.Reader = evt.getVarload
-        insertUse(
-          caller = varload.getCallertag,
-          callee = varload.getCallertag,
-          method = varload.getCallermethod.toString,
-          kind = "varload",
-          name ="var_"+varload.getVar.toString,
-          idx = idx,
-          thread = varload.getThreadName.toString)
-      case AnyEvt.Which.VARSTORE =>
-        val varstore: Events.VarStoreEvt.Reader = evt.getVarstore
-        // step 1: emit use:
-        insertUse(
-          caller = varstore.getCallertag,
-          callee = varstore.getCallertag,
-          method = varstore.getCallermethod.toString,
-          kind = "varstore",
-          name ="var_"+varstore.getVar.toString,
-          idx = idx,
-          thread = varstore.getThreadName.toString)
-        if (! stacks.peek(varstore.getThreadName.toString).map(_.enter.getCalleetag).contains(varstore.getCallertag) ) {
-          println(s"""at $idx: last enter's callee tag and varstore's caller tag do not match:
-                     |enter   : ${stacks.peek(varstore.getThreadName.toString)}
-                     |varstore: ${EventsUtil.varStoreToString(varstore)}""".stripMargin)
-        }
+          val readmodify: ReadModifyEvt.Reader = evt.getReadmodify
+          val caller: Long = readmodify.getCallertag
+          val callee: Long = readmodify.getCalleetag
+          val kind: String = if (readmodify.getIsModify) {
+            "modify"
+          } else {
+            "read"
+          }
+          insertUse(
+            caller = caller,
+            callee = callee,
+            method = stacks.peek(readmodify.getThreadName.toString).map(_.enter.getName.toString).getOrElse("<unknown>"),
+            kind = kind,
+            name = readmodify.getFname.toString,
+            idx = idx,
+            thread = readmodify.getThreadName.toString)
+        case AnyEvt.Which.VARLOAD =>
+          val varload: Events.VarLoadEvt.Reader = evt.getVarload
+          insertUse(
+            caller = varload.getCallertag,
+            callee = varload.getCallertag,
+            method = varload.getCallermethod.toString,
+            kind = "varload",
+            name ="var_"+varload.getVar.toString,
+            idx = idx,
+            thread = varload.getThreadName.toString)
+        case AnyEvt.Which.VARSTORE =>
+          val varstore: Events.VarStoreEvt.Reader = evt.getVarstore
+          // step 1: emit use:
+          insertUse(
+            caller = varstore.getCallertag,
+            callee = varstore.getCallertag,
+            method = varstore.getCallermethod.toString,
+            kind = "varstore",
+            name ="var_"+varstore.getVar.toString,
+            idx = idx,
+            thread = varstore.getThreadName.toString)
+          if (! stacks.peek(varstore.getThreadName.toString).map(_.enter.getCalleetag).contains(varstore.getCallertag) ) {
+            println(s"""at $idx: last enter's callee tag and varstore's caller tag do not match:
+                        |enter   : ${stacks.peek(varstore.getThreadName.toString)}
+                        |varstore: ${EventsUtil.varStoreToString(varstore)}""".stripMargin)
+          }
 
-        //step 2: set close old reference (if there was one):
-        val whenUsed = stacks.whenWasVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
-        if (whenUsed > 0) {
-          assert(varstore.getCallertag != 0, s"caller must not be 0: ${EventsUtil.varStoreToString(varstore)}")
-          closeEdge(
-            holder = varstore.getCallertag,
-            kind = "var",
-            start = whenUsed,
-            end = idx)
-        }
+          //step 2: set close old reference (if there was one):
+          val whenUsed = stacks.whenWasVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
+          if (whenUsed > 0) {
+            assert(varstore.getCallertag != 0, s"caller must not be 0: ${EventsUtil.varStoreToString(varstore)}")
+            closeEdge(
+              holder = varstore.getCallertag,
+              kind = "var",
+              start = whenUsed,
+              end = idx)
+          }
 
-        //step 3: open new reference (if there is one):
-        if (varstore.getNewval != 0) {
-          stacks.markVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
-          openEdge(
-            holder = varstore.getCallertag,
-            callee = varstore.getNewval,
-            kind = "var",
-            name = "var_" + varstore.getVar,
-            thread = varstore.getThreadName.toString,
-            start = idx)
-        } else {
-          stacks.markVarAsUnused(varstore.getThreadName.toString, varstore.getVar)
-        }
+          //step 3: open new reference (if there is one):
+          if (varstore.getNewval != 0) {
+            stacks.markVarAsUsed(varstore.getThreadName.toString, varstore.getVar, idx)
+            openEdge(
+              holder = varstore.getCallertag,
+              callee = varstore.getNewval,
+              kind = "var",
+              name = "var_" + varstore.getVar,
+              thread = varstore.getThreadName.toString,
+              start = idx)
+          } else {
+            stacks.markVarAsUnused(varstore.getThreadName.toString, varstore.getVar)
+          }
         /*
         */
         case other => ()
@@ -406,18 +397,40 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
     })
   }
 
+  /** Runs a query using caching.
+    * The user has to close the ResultsSet
+    *
+    * @return the result set, stemming either from loading the cache,
+    *         or from running the full query
+    */
   def getCachedOrRunQuery(query: VertexIdAnalyser): ResultSet = {
     this.prepareCaches(query.precacheInnersSQL)
     this.getCachedOrRunSQL(query.cacheKey, query.getSQLUsingCache)
   }
 
+  def runSQLQuery(sql: String): ResultSet = {
+    try {
+      this.conn.createStatement().executeQuery(sql)
+    } catch {
+      case e: PSQLException =>
+        //add the original query to the exception for better debugability
+        throw new PSQLException(s"query: $sql", null, e)
+    }
+  }
+
+  /** Runs a SQL query using caching.
+    * The user has to close the ResultsSet
+    *
+    * @return the result set, stemming either from loading the cache,
+    *         or from running the full query
+    */
   def getCachedOrRunSQL(cacheKey: String, sql: String): ResultSet = {
     assert(cacheKey != null)
     assert(sql != null)
     assert(this.conn != null)
     var ret: ResultSet = null
     try {
-      ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $cacheKey;")
+      ret = this.runSQLQuery(s"SELECT * FROM $cacheKey;")
     } catch {
       case e: PSQLException =>
         this.conn.commit()
@@ -425,30 +438,10 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
         this.conn.createStatement().execute(
           s"CREATE TABLE IF NOT EXISTS $cacheKey AS $sql ;")
         this.conn.commit()
-        ret = this.conn.createStatement().executeQuery(s"SELECT * FROM $cacheKey")
+        ret = this.runSQLQuery(s"SELECT * FROM $cacheKey")
     }
     ret
   }
-
-//  def getCachedOrDo(query: String, f: () => DataFrame): DataFrame = {
-//    val name = QueryParser.parseObjQuery(query).right.get.cacheKey
-//    var ret : DataFrame = null
-//    try {
-//      ret = getFrame(name)
-//      println(s"$query: found cache $name")
-//    } catch {
-//      case e:Throwable => {
-//        println(s"$query: didn't find cache $name")
-//        ret = f()
-//        assert(ret != null, "need result!")
-//        assert(ret.write != null )
-//        assert(ret.write.mode(SaveMode.Ignore) != null )
-//        println(s"$query: caching in $name: ${ret.count()} records")
-//        ret.write.mode(SaveMode.Ignore).jdbc(s"jdbc:postgresql:$dbname", name, new java.util.Properties())
-//      }
-//    }
-//    ret
-//  }
 
   def getObjPercentage(query: String): Option[Float] = {
     QueryParser.parseObjQuery(query) match {
@@ -529,8 +522,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
         this.prepareCaches(q.precacheInnersSQL)
         this.getCachedOrRunQuery(q).close()
         val result = this.getCachedOrRunSQL(cacheKey,
-          s"""
-             |SELECT
+          s"""SELECT
              |  filtered.klass,
              |  ROUND(100.0*npassed/ntotal,2) AS percentage
              |FROM
@@ -558,137 +550,127 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
     }
   }
 
-  def selectFrame(tblName: String, sql: String): DataFrame = {
-    val eq = QueryParser.parseObjQuery(sql)
-    if (eq.isRight) {
-      //FIXME: this is a hack! we should get rid of Spark alltogether
-      this.getCachedOrRunQuery(eq.right.get).close()
-    }
-    val f = getFrame(tblName)
-    f.createOrReplaceTempView(tblName)
-    this.sqlContext.sql(sql)
-  }
+//  def selectFrame(tblName: String, sql: String): DataFrame = {
+//    val eq = QueryParser.parseObjQuery(sql)
+//    if (eq.isRight) {
+//      //FIXME: this is a hack! we should get rid of Spark alltogether
+//      this.getCachedOrRunQuery(eq.right.get).close()
+//    }
+//    val f = getFrame(tblName)
+//    f.createOrReplaceTempView(tblName)
+//    this.sqlContext.sql(sql)
+//  }
 
   def aproposObject(tag: Long): AproposData = {
-    val theObj = selectFrame("objects", s"SELECT klass FROM objects WHERE id == $tag").rdd
+    val theObj = this.runSQLQuery(s"SELECT klass FROM objects WHERE id = $tag")
 
-    val klass = if (theObj.count() > 0) {
-      Option(theObj
-        .first()
-        .getAs[String]("klass"))
+    val klass = if (theObj.next()) {
+      Option(theObj.getString("klass"))
     } else {
       None
     }
 
-    val usesTable = this.selectFrame("uses", s"SELECT * FROM uses WHERE caller = $tag OR callee = $tag").rdd
-    val uses = usesTable
-        .map(row=>
-          (row.getAs[Long]("caller"),
-            row.getAs[Long]("callee"),
-            row.getAs[Long]("idx"),
-            Option(row.getAs[String]("kind")).getOrElse("<unknown kind>"),
-            Option(row.getAs[String]("name")).getOrElse("<unknown name>"),
-            Option(row.getAs[String]("thread")).getOrElse("<unknown thread>"))
-        )
-
-    val useEvents = uses.map {
-      case ((caller, callee, idx, kind, name, thread)) => AproposUseEvent(caller, callee, idx, kind, name, thread, "use").asInstanceOf[AproposEvent]
+    val usesTable = this.runSQLQuery(s"SELECT * FROM uses WHERE caller = $tag OR callee = $tag")
+    val useEvents = collection.mutable.ArrayBuffer[AproposUseEvent]()
+    while (usesTable.next) {
+      useEvents +=
+        AproposUseEvent(usesTable.getLong("caller"),
+          usesTable.getLong("callee"),
+          usesTable.getLong("idx"),
+          Option(usesTable.getString("kind")).getOrElse("<unknown kind>"),
+          Option(usesTable.getString("name")).getOrElse("<unknown name>"),
+          Option(usesTable.getString("thread")).getOrElse("<unknown thread>"),
+          "no comment")
     }
+    usesTable.close()
 
-    val callsTable = this.selectFrame("calls", s"SELECT * FROM calls WHERE caller = $tag OR callee = $tag").rdd
-    val callsEvents = callsTable
-        .map(row =>
-          AproposCallEvent(row.getAs[Long]("caller")
-            , row.getAs[Long]("callee")
-            , row.getAs[Long]("callstart")
-            , row.getAs[Long]("callend")
-            , row.getAs[String]("name")
-            , row.getAs[String]("callsitefile") + ":" + row.getAs[Long]("callsiteline")
-            , Option(row.getAs[String]("thread")).getOrElse("<unknown thread>")
-            , "no comment").asInstanceOf[AproposEvent]
-        )
+    val callsTable = this.runSQLQuery(s"SELECT * FROM calls WHERE caller = $tag OR callee = $tag")
+    val callsEvents = collection.mutable.ArrayBuffer[AproposCallEvent]()
+    while (callsTable.next) {
+      callsEvents +=
+        AproposCallEvent(
+          callsTable.getLong("caller")
+          , callsTable.getLong("callee")
+          , callsTable.getLong("callstart")
+          , callsTable.getLong("callend")
+          , callsTable.getString("name")
+          , callsTable.getString("callsitefile") + ":" + callsTable.getLong("callsiteline")
+          , Option(callsTable.getString("thread")).getOrElse("<unknown thread>")
+          , "no comment")
+    }
+    callsTable.close()
 
-    val refsTable = this.selectFrame("refs", s"SELECT * FROM refs WHERE caller = $tag OR callee = $tag").rdd
-    val refsEvents =
-      refsTable.map(row =>
+    val refsTable = this.runSQLQuery(s"SELECT * FROM refs WHERE caller = $tag OR callee = $tag")
+    val refsEvents = collection.mutable.ArrayBuffer[AproposRefEvent]()
+    while (refsTable.next) {
+      refsEvents +=
         AproposRefEvent(
-          row.getAs[Long]("caller")
-          , row.getAs[Long]("callee")
-          , row.getAs[Long]("refstart")
-          , Option(row.getAs[Long]("refend"))
-          , row.getAs[String]("name")
-          , row.getAs[String]("kind")
-          , Option(row.getAs[String]("thread")).getOrElse("<unknown thread>")
-          , "no comment").asInstanceOf[AproposEvent])
+          refsTable.getLong("caller")
+          , refsTable.getLong("callee")
+          , refsTable.getLong("refstart")
+          , Option(refsTable.getLong("refend"))
+          , refsTable.getString("name")
+          , refsTable.getString("kind")
+          , Option(refsTable.getString("thread")).getOrElse("<unknown thread>")
+          , "no comment")
+    }
+    refsTable.close()
 
-    AproposData(
-      None,
-      (useEvents++callsEvents++refsEvents)
-        .sortBy(AproposEvent.startTime).distinct().collect(), klass)
+    var evts = collection.mutable.ArrayBuffer[AproposEvent]()
+    evts.appendAll(useEvents)
+    evts.appendAll(callsEvents)
+    evts.appendAll(refsEvents)
+    evts = evts.sortWith({ case (evt1, evt2) => AproposEvent.startTime(evt1) < AproposEvent.startTime(evt2) })
+
+    AproposData(None, evts, klass)
   }
 
-//  def selectFrame(query: String) : DataFrame = {
-//    this.sqlContext.sql(query.replace("FROM ", s"FROM ${this.dbname}."))
+//  def getFrame(table: String): DataFrame = {
+//    val opts = Map(
+//      "url" -> s"jdbc:postgresql:$dbname",
+//      "dbtable" -> table
+//    )
+//
+//    this.sqlContext.read.format("jdbc").options(opts).load()
 //  }
 
-  def getFrame(table: String): DataFrame = {
-    val opts = Map(
-      "url" -> s"jdbc:postgresql:$dbname",
-      "dbtable" -> table
-    )
+//  private def initGraph: Graph[ObjDesc, EdgeDesc] = {
+//    import sqlContext.implicits._
+//    val objs = this.getFrame("objects").select("id", "klass").as[(Long, String)].map {
+//      case (id, k) => (id, ObjDesc(klass = Option(k)))
+//    }
+//    val refs = this.getFrame("refs").select("caller", "callee", "refstart", "refend", "kind")
+//      .rdd
+//      .map(row => {
+//        val fr = Option(row.getAs[Long]("refstart"))
+//        val to = Option(row.getAs[Long]("refend"))
+//        Edge(
+//          row.getAs[Long]("caller"),
+//          row.getAs[Long]("callee"),
+//          EdgeDesc(fr, to, EdgeKind.fromRefsKind(row.getAs[String]("kind"))))
+//      })
+//
+//    val g: Graph[ObjDesc, EdgeDesc] =
+//      Graph(objs.rdd, refs)
+//    g.cache()
+//    g
+//  }
 
-    this.sqlContext.read.format("jdbc").options(opts).load()
-  }
-
-  private def initGraph: Graph[ObjDesc, EdgeDesc] = {
-    import sqlContext.implicits._
-    val objs = this.getFrame("objects").select("id", "klass").as[(Long, String)].map {
-      case (id, k) => (id, ObjDesc(klass = Option(k)))
-    }
-
-    //    val uses = this.db.getTable("uses")
-    //      .map(row => {
-    //        val fr = row.getLong("idx")
-    //        val to = fr + 1
-    //        Edge(
-    //          row.getLong("caller"),
-    //          row.getLong("callee"),
-    //          EdgeDesc(Some(fr), Some(to), EdgeKind.fromUsesKind(row.getString("kind")))
-    //        )
-    //      })
-    //      .setName("object graph edges")
-    val refs = this.getFrame("refs").select("caller", "callee", "refstart", "refend", "kind")
-      .rdd
-      .map(row => {
-        val fr = Option(row.getAs[Long]("refstart"))
-        val to = Option(row.getAs[Long]("refend"))
-        Edge(
-          row.getAs[Long]("caller"),
-          row.getAs[Long]("callee"),
-          EdgeDesc(fr, to, EdgeKind.fromRefsKind(row.getAs[String]("kind"))))
-      })
-
-    val g: Graph[ObjDesc, EdgeDesc] =
-      Graph(objs.rdd, refs)
-    g.cache()
-    g
-  }
-
-  private lazy val g = initGraph
+//  private lazy val g = initGraph
 
 
-  def getGraph(): Graph[ObjDesc, EdgeDesc] = {
-    this.g
-  }
+//  def getGraph(): Graph[ObjDesc, EdgeDesc] = {
+//    this.g
+//  }
 
   def clearCaches(dbname: String, onlyStatistics: Boolean = false): Unit = {
     val conn = DriverManager.getConnection("jdbc:postgresql:"+dbname)
     val rs = conn.createStatement().executeQuery(
       s"""SELECT table_name
-        |FROM information_schema.tables
-        |WHERE table_schema='public'
-        |AND   table_type='BASE TABLE'
-        |AND   table_name LIKE 'cache_%${if (onlyStatistics) {"perc%"} else {""}}'""".stripMargin)
+          |FROM information_schema.tables
+          |WHERE table_schema='public'
+          |AND   table_type='BASE TABLE'
+          |AND   table_name LIKE 'cache_%${if (onlyStatistics) {"perc%"} else {""}}'""".stripMargin)
     println("\nclearing caches: ")
     while (rs.next()) {
       val tblname = rs.getString(1)
@@ -701,14 +683,6 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
     rs.close()
     conn.close()
   }
-
-//  @deprecated
-//  def getTable(table: String): CassandraTableScanRDD[CassandraRow] = {
-//    assert(PostgresSpencerDB.sc != null, "need to have spark context")
-//    assert(this.session != null, "need to have db session")
-//    val ret = PostgresSpencerDB.sc.cassandraTable(this.session.getLoggedKeyspace, table)
-//    ret
-//  }
 
 //  def getProperObjects: RDD[CassandraRow] = {
 //    //FIXME: use WHERE clause
@@ -816,6 +790,7 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
         cnt = cnt+1
       }
     }
+    res.close()
 
     println(s"closed $cnt assignments")
   }
@@ -1009,18 +984,10 @@ class PostgresSpencerDB(dbname: String, startSpark: Boolean = true) {
   }
 
   def connect_(overwrite: Boolean = false): Unit = {
-
     if (overwrite) {
       createFreshTables(this.dbname)
     }
-
     initPreparedStatements(this.dbname)
-
-//    connectToKeyspace(this.dbname)
-  }
-
-  @deprecated
-  def connectToKeyspace(keyspace: String): Unit = {
   }
 
   def initDbConnection(): Unit = {

@@ -11,11 +11,11 @@ import org.apache.spark.sql.functions._
 
 trait VertexIdAnalyser extends SpencerAnalyser[DataFrame] {
 
+  @deprecated
   override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
     g.prepareCaches(this.precacheInnersSQL)
-    g.getCachedOrRunQuery(this)
-    new RuntimeException("WARNING: using analyse").printStackTrace()
-    g.selectFrame(this.cacheKey, this.getCacheSQL)
+    g.getCachedOrRunQuery(this).close()
+    throw new RuntimeException("WARNING: analyse")
   }
 
   def analyseJDBC(implicit g: PostgresSpencerDB) : ResultSet = {
@@ -305,8 +305,7 @@ case class NonThreadLocalObj() extends VertexIdAnalyser {
       |FROM uses_cstore
       |WHERE callee > 4
       |GROUP BY callee
-      |HAVING COUNT(DISTINCT thread) > 1
-      |""".stripMargin
+      |HAVING COUNT(DISTINCT thread) > 1""".stripMargin
   }
 
   override def getVersion: Int = { 0 }
@@ -547,10 +546,6 @@ case class Deeply(inner: VertexIdAnalyser,
 }
 
 case class ConstSeq(value: Seq[VertexId]) extends VertexIdAnalyser {
-  override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
-    g.sqlContext.sparkSession.sparkContext.parallelize(value).toDF().withColumnRenamed("value", "id")
-  }
 
   override def pretty(result: DataFrame): String = {
     value.mkString("[ ", ", ", " ]")

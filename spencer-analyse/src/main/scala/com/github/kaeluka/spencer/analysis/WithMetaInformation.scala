@@ -18,29 +18,6 @@ case class ObjWithMeta(oid: VertexId,
                        numFieldReads: Long,
                        numCalls: Long)
 
-case class ConnectedComponent() extends VertexIdAnalyser {
-  override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
-    import g.sqlContext.implicits._
-    val graph: Graph[ObjDesc, EdgeDesc] = g.getGraph()
-    val components: Graph[VertexId, EdgeDesc] = graph.subgraph(epred = _.attr.kind == EdgeKind.FIELD).connectedComponents()
-
-    val joined = graph.outerJoinVertices(components.vertices) {
-      (vid, _odesc, optCC) => optCC
-    }
-
-    val data = joined.vertices.toDF.withColumnRenamed("_1", "id").withColumnRenamed("_2", "connectedComponent")
-
-    data.show(10)
-
-    data
-  }
-
-  override def explanation(): String = "are connected"
-
-  override def getSQLBlueprint = ??? ///FIXME
-  override def getVersion = { 0 }
-}
-
 case class WithMetaInformation(inner: VertexIdAnalyser) extends VertexIdAnalyser {
 
   override def analyse(implicit g: PostgresSpencerDB): DataFrame = {
