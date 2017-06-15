@@ -380,7 +380,7 @@ class PostgresSpencerDB(dbname: String) {
     * @return the result set, stemming either from loading the cache,
     *         or from running the full query
     */
-  def getCachedOrRunQuery(query: SpencerQuery): ResultSet = {
+  def getCachedOrRunQuery(query: ResultSetAnalyser): ResultSet = {
     this.prepareCaches(query.precacheInnersSQL)
     this.getCachedOrRunSQL(query.cacheKey, query.getSQLUsingCache)
   }

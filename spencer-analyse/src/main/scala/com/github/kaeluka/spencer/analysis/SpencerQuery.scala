@@ -6,123 +6,8 @@ import com.github.kaeluka.spencer.PostgresSpencerDB
 import com.github.kaeluka.spencer.analysis.EdgeKind.EdgeKind
 import com.google.common.base.Stopwatch
 
-trait SpencerQuery extends SpencerAnalyser[ResultSet] {
-
-  def analyse(implicit g: PostgresSpencerDB) : ResultSet = {
-    g.getCachedOrRunQuery(this)
-  }
-
-  def getInners: Seq[SpencerQuery] = List()
-
-  def getVersion: Int
-
-  /**
-    * Produce a dependency tree (JSON) in this format:
-    * {
-    *  "And(StationaryObj() And(MutableObj() UniqueObj()))": {
-    *    "StationaryObj()": {
-    *      "NonStationaryObj()": { cache: "cache__1837766281_0" }
-    *      cache: "cache_563859730_0"
-    *    },
-    *    "And(MutableObj() UniqueObj())": {
-    *      "MutableObj()": { cache: "cache_39765202_0" },
-    *      "UniqueObj()": { cache: "cache__267503929_0" }
-    *      cache: "cache__1300376285_0"
-    *    }
-    *    cache: "cache__982222453_0"
-    *  }
-    *}
-    * @return the dependency tree of the query, formatted as JSON
-    */
-  def dependencyTree() : String = {
-    s"""{
-       |  ${indentedInner(dependencyTree_(), 2)}
-       |}""".stripMargin
-  }
-
-  def dependencyTree_() : String = {
-    val ret = if (this.getInners.size > 0) {
-      val deps = indentedInner(this.getInners.map(inner => inner.dependencyTree_()).mkString(",\n"), 2)
-      s"""\"${this.toString}\": {
-          |  $deps
-          |}""".stripMargin
-    } else {
-      s"""\"${this.toString}\": { }"""
-    }
-    ret
-  }
-
-  /**
-    * Gives a sequence of SQL commands that can pre-cache the results.
-    * If the cache already exists, these queries will *not* rerun it
-    * @return a sequence of commands (as Strings) that can pre-cache the results
-    *         of this query. use getSQLUsingCache to load the cached query
-    */
-  def precacheInnersSQL = {
-    val x = getInners.map({
-      inner =>
-        s"""CREATE TABLE IF NOT EXISTS ${inner.cacheKey} AS (
-           |  ${AnaUtil.indent(inner.getSQL, 2)}
-           |);""".stripMargin
-    })
-    x
-  }
-
-  def indentedInner(inner : String, lvl : Int): String = {
-    val lines = inner.lines
-    assert(lines.hasNext)
-    var ret = lines.next()
-    while (lines.hasNext) {
-      ret = ret + "\n" + (" " * lvl) + lines.next()
-    }
-    ret
-  }
-  def replaceQuestionMark(blueprint: String, inner : String) : String = {
-    val lines = blueprint.lines
-    var done = false
-    var ret = null : String
-    while (lines.hasNext && ! done) {
-      val line = lines.next()
-      val i = line.indexOf('?')
-      if (i >= 0) {
-        ret = blueprint.replaceFirst("\\?", indentedInner(inner, i))
-        done = true
-      }
-    }
-
-    assert(ret != null)
-    ret
-  }
-
-  def getSQL: String = {
-    var blueprint = getSQLBlueprint
-    val inners = getInners
-    assert(blueprint.count(_ == '?') == getInners.size)
-    for (inner <- inners) {
-      blueprint = replaceQuestionMark(blueprint, inner.getSQL)
-    }
-    blueprint
-  }
-
-  def getSQLUsingCache: String = {
-    assert(this.getSQLBlueprint.count(_ == '?') == getInners.size)
-    var assembledSQL = getSQLBlueprint
-    for (inner <- this.getInners) {
-      assembledSQL = replaceQuestionMark(assembledSQL, inner.getCacheSQL)
-    }
-    assembledSQL
-  }
-
-  def getCacheSQL: String = s"SELECT id FROM ${this.cacheKey}"
-
-  def getSQLBlueprint: String
-
-  def cacheKey: String = {
-    val innerKeys = this.getInners.map(_.cacheKey).mkString("")
-    val thisKey = (innerKeys+this.toString).hashCode
-    s"cache_${thisKey.hashCode.toString.replaceAll("-","_")}_${this.getVersion}"
-  }
-}
+// A spencer query is an analyser that contains the column 'id' (bigint).
+trait SpencerQuery extends ResultSetAnalyser { }
 
 object AnaUtil {
   def indent(s: String, lvl: Int): String = {
@@ -137,10 +22,6 @@ case class And(vs: Seq[SpencerQuery]) extends SpencerQuery {
   override def toString: String = vs.mkString("And(", " ", ")")
 
   override def getInners = vs
-
-  override def precacheInnersSQL: Seq[String] = {
-    vs.flatMap(_.precacheInnersSQL)
-  }
 
   override def getSQLBlueprint: String = {
     vs.map(_ => "  ?").mkString("(\n", "\n) INTERSECT (\n", "\n)")
@@ -681,24 +562,21 @@ object SpencerQueryTest extends App {
   db.connect()
 
   val watch: Stopwatch = Stopwatch.createStarted()
-  val q = QueryParser.parseObjQuery("And(StationaryObj() And(MutableObj() UniqueObj()))").right.get
+  val q = QueryParser.parseObjQuery("HeapUniqueObj()").right.get
   println(q.toString)
   println(s"getSQL:\n${q.getSQL}")
   println(s"precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}")
   println(s"getSQLUsingCache:\n${q.getSQLUsingCache}")
   println(s"getCacheSQL: ${q.getCacheSQL}")
   println(s"dependencyTree:\n${q.dependencyTree()}")
-//  sys.exit()
+
   val res = q.analyse //AgeOrderedObj().analyse
 
-  var cnt = 0
-  while (res.next()) {
-    cnt += 1
-  }
   println(
     s"""analysis took ${watch.stop()}
-       |got $cnt objects
        |getSQL:\n${q.getSQL}
        |precacheInnersSQL:\n${q.precacheInnersSQL.mkString("\n")}
        |getSQLUsingCache:\n${q.getSQLUsingCache}""".stripMargin)
+
+  SQLUtil.print(res)
 }
