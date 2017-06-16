@@ -896,6 +896,8 @@ class PostgresSpencerDB(dbname: String) {
       print(s"pre caching $q.. ")
       this.prepareCaches(q.precacheInnersSQL)
       val res = this.getCachedOrRunSQL(q.cacheKey, q.getSQLUsingCache)
+      this.getClassPercentage(q.toString)
+      this.getFieldPercentage(q.toString)
       println(s"done after $time")
     }
     val del = QueryParser.wrapQueries("Not", QueryParser.seriesOfQueries())
