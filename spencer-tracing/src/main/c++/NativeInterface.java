@@ -1,1 +1,1 @@
-../../../java/src/main/java/NativeInterface.java
+../java/NativeInterface.java

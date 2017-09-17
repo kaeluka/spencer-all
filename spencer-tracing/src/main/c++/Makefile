@@ -12,8 +12,9 @@ OFILES=$(CCFILES:.cpp=.o)
 JAVAFILES=$(shell ls *.java)
 CLASSFILES=$(JAVAFILES:.java=.class)
 
-CC=clang++ -std=c++14 -Wall -ggdb -O2
-IFLAGS=-I /System/Library/Frameworks/JavaVM.framework/Headers -I "$(JAVA_HOME)/include/" -I /opt/local/lib/gcc48/gcc/x86_64-apple-darwin12/4.8.1/include/ -I $(JAVA_HOME)/include/darwin/
+CC=g++ -std=c++14 -Wall -O2
+###IFLAGS=-I /System/Library/Frameworks/JavaVM.framework/Headers -I "$(JAVA_HOME)/include/" -I /opt/local/lib/gcc48/gcc/x86_64-apple-darwin12/4.8.1/include/ -I $(JAVA_HOME)/include/darwin/
+IFLAGS=-I /usr/lib/jvm/java-8-openjdk-amd64/include/linux -I /usr/lib/jvm/java-8-openjdk-amd64/include/
 
 all: lib/NativeInterface.so NativeInterface.class
 	#
@@ -24,11 +25,11 @@ NativeInterface.class: NativeInterface.java
 analyse: analysers/countEvents analysers/traceEvents analysers/heapMoves analysers/lifeTimes analysers/heapMovesObj analysers/moves analysers/movesObj analysers/checkTrace analysers/stationaryObjects analysers/stationaryObjectsObj  analysers/immutable analysers/immutableObj analysers/logFieldRefs analysers/logVarRefs analysers/logTypes analysers/heapMovesObj2 analysers/classNames
 	@echo done
 
-NativeInterface.h: NativeInterface.java
+NativeInterface.h: NativeInterface.class
 	javah NativeInterface
 
-lib/NativeInterface.o: NativeInterface.cpp NativeInterface.h events.o tagging.hh callstack.hh Debug.o MonitorGuard.hh
-	$(CC) events.o Debug.o -c -fPIC $(LIBS) $(IFLAGS) NativeInterface.cpp -o lib/NativeInterface.o
+lib/NativeInterface.so: NativeInterface.cpp NativeInterface.h events.o tagging.hh callstack.hh MonitorGuard.hh
+	$(CC) events.o -c -fPIC $(LIBS) $(IFLAGS) NativeInterface.cpp -o lib/NativeInterface.so
 
 %.o: %.cpp %.hh
 	$(CC) -Wno-unused-variable -c $*.cpp
