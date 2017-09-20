@@ -17,7 +17,7 @@ import scala.collection.JavaConversions._
 
 object PostgresSpencerDBs {
   def getAvailableBenchmarks(): Seq[BenchmarkMetaInfo] = {
-    val conn = DriverManager.getConnection("jdbc:postgresql:template1")
+    val conn = DriverManager.getConnection("jdbc:postgresql://postgres/template1", System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))
     var benchmarks = List[BenchmarkMetaInfo]()
     val ps = conn.prepareStatement("SELECT datname FROM pg_database WHERE datistemplate = false;")
     val rs = ps.executeQuery()
@@ -25,7 +25,7 @@ object PostgresSpencerDBs {
     while (rs.next()) {
       val dbname = rs.getString(1)
       try {
-        val dbconn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
+        val dbconn = DriverManager.getConnection(s"jdbc:postgresql://postgres/$dbname", System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))
 
         db = new PostgresSpencerDB(dbname)
         db.connect()
@@ -592,7 +592,7 @@ class PostgresSpencerDB(dbname: String) {
   }
 
   def clearCaches(dbname: String, onlyStatistics: Boolean = false): Unit = {
-    val conn = DriverManager.getConnection("jdbc:postgresql:"+dbname)
+    val conn = DriverManager.getConnection("jdbc:postgresql://postgres/"+dbname, System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))
     val rs = conn.createStatement().executeQuery(
       s"""SELECT table_name
           |FROM information_schema.tables
@@ -923,14 +923,14 @@ class PostgresSpencerDB(dbname: String) {
   def initDbConnection(): Unit = {
 
     val opts = Map(
-      "url"     -> s"jdbc:postgresql:$dbname",
+      "url"     -> s"jdbc:postgresql://postgres/$dbname",
       "dbtable" -> dbname,
       "user"    -> "spencer"
     )
     if (this.conn != null) {
       this.conn.close()
     }
-    this.conn = DriverManager.getConnection(s"jdbc:postgresql:$dbname")
+    this.conn = DriverManager.getConnection(s"jdbc:postgresql://postgres/$dbname", System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))
     this.conn.setAutoCommit(false)
   }
 
@@ -938,7 +938,7 @@ class PostgresSpencerDB(dbname: String) {
     if (this.conn != null) {
       this.conn.close()
     }
-    this.conn = DriverManager.getConnection("jdbc:postgresql:template1")
+    this.conn = DriverManager.getConnection("jdbc:postgresql://postgres/template1", System.getenv("POSTGRES_USER"), System.getenv("POSTGRES_PASSWORD"))
     this.conn.createStatement().execute(s"DROP DATABASE IF EXISTS $dbname")
 
     this.conn.createStatement().execute(s"CREATE DATABASE $dbname")
